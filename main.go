@@ -124,6 +124,20 @@ func main() {
 	// BaseGate: register legacy task adaptors into unified /v1/bg/responses pipeline
 	relay.RegisterAllLegacyTaskAdaptors()
 
+	// BaseGate: start background workers on master node
+	if common.IsMasterNode {
+		bgPollWorker := service.NewBgPollWorker(service.DefaultPollConfig)
+		bgPollWorker.Start()
+
+		bgSessionWorker := service.NewBgSessionWorker(service.DefaultSessionWorkerConfig)
+		bgSessionWorker.Start()
+
+		bgWebhookWorker := service.NewBgWebhookWorker(service.DefaultWebhookWorkerConfig)
+		bgWebhookWorker.Start()
+
+		common.SysLog("bg_init: all BaseGate background workers started (master node)")
+	}
+
 	// Channel upstream model update check task
 	controller.StartChannelUpstreamModelUpdateTask()
 

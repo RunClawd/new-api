@@ -7,6 +7,8 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"gorm.io/gorm"
 )
 
 // NormalizeUsage converts raw provider usage into a canonical usage record
@@ -124,42 +126,146 @@ func PostLedgerEntry(
 	return ledgerEntry, nil
 }
 
-// FinalizeBilling is the full 4-layer billing pipeline for a completed response:
-//   Usage → Billing → Ledger → (Outbox not yet implemented)
+// FinalizeBilling is the full billing pipeline for a completed response:
+//   Usage → Billing → Ledger (all in one transaction)
 //
 // Called by the state machine when a response reaches a terminal state.
+// If any step fails, the entire transaction rolls back — no partial writes.
 func FinalizeBilling(responseID string, orgID int, rawUsage *relaycommon.ProviderUsage, pricing *relaycommon.PricingSnapshot) error {
-	// 1. Normalize usage
-	canonicalUsage, err := NormalizeUsage(responseID, rawUsage)
-	if err != nil {
-		return fmt.Errorf("finalize billing: usage normalization failed: %w", err)
+	if rawUsage == nil {
+		return nil
 	}
 
-	// 2. Calculate billing
-	billingRecord, err := CalculateBilling(responseID, canonicalUsage, pricing)
-	if err != nil {
-		return fmt.Errorf("finalize billing: billing calculation failed: %w", err)
+	// 1. Build structs (pure computation, no DB)
+	canonicalUsage := buildCanonicalUsage(rawUsage)
+
+	usageRecord := &model.BgUsageRecord{
+		UsageID:       relaycommon.GenerateUsageID(),
+		ResponseID:    responseID,
+		BillableUnits: canonicalUsage.BillableUnits,
+		BillableUnit:  canonicalUsage.BillableUnit,
+		InputUnits:    canonicalUsage.InputUnits,
+		OutputUnits:   canonicalUsage.OutputUnits,
+		CreatedAt:     time.Now().Unix(),
 	}
+	usageJSON, _ := common.Marshal(rawUsage)
+	usageRecord.RawUsageJSON = string(usageJSON)
 
-	// 3. Post ledger entry
-	_, err = PostLedgerEntry(orgID, billingRecord, "debit")
-	if err != nil {
-		return fmt.Errorf("finalize billing: ledger posting failed: %w", err)
-	}
+	// 2. Transactional write: usage + billing + ledger
+	return model.DB.Transaction(func(tx *gorm.DB) error {
+		// 2a. Insert usage record
+		if err := tx.Create(usageRecord).Error; err != nil {
+			return fmt.Errorf("usage insert failed: %w", err)
+		}
 
-	// 4. Outbox (webhook notification) — TODO Phase 4
-	// Will create a bg_webhook_event for external billing systems
+		// 2b. Calculate billing (skip if no pricing or zero amount)
+		if pricing == nil || pricing.UnitPrice == 0 {
+			common.SysLog(fmt.Sprintf("billing: %s — no pricing configured, usage recorded only", responseID))
+			return nil
+		}
 
-	if billingRecord != nil {
+		amount := canonicalUsage.BillableUnits * pricing.UnitPrice
+		billingRecord := &model.BgBillingRecord{
+			BillingID:    relaycommon.GenerateBillingID(),
+			ResponseID:   responseID,
+			BillingMode:  pricing.BillingMode,
+			BillableUnit: canonicalUsage.BillableUnit,
+			Quantity:     canonicalUsage.BillableUnits,
+			UnitPrice:    pricing.UnitPrice,
+			Amount:       amount,
+			Currency:     pricing.Currency,
+			CreatedAt:    time.Now().Unix(),
+		}
+		if err := tx.Create(billingRecord).Error; err != nil {
+			return fmt.Errorf("billing insert failed: %w", err)
+		}
+
+		// 2c. Post ledger debit
+		ledgerEntry := &model.BgLedgerEntry{
+			LedgerEntryID: relaycommon.GenerateLedgerEntryID(),
+			OrgID:         orgID,
+			ResponseID:    responseID,
+			BillingID:     billingRecord.BillingID,
+			EntryType:     "debit",
+			Amount:        amount,
+			Currency:      pricing.Currency,
+			CreatedAt:     time.Now().Unix(),
+		}
+		if err := tx.Create(ledgerEntry).Error; err != nil {
+			return fmt.Errorf("ledger insert failed: %w", err)
+		}
+
 		common.SysLog(fmt.Sprintf("billing: finalized %s — %.2f %s (%.4f units @ %.4f/%s)",
-			responseID, billingRecord.Amount, billingRecord.Currency,
+			responseID, amount, pricing.Currency,
 			canonicalUsage.BillableUnits, pricing.UnitPrice, canonicalUsage.BillableUnit))
+		return nil
+	})
+}
+
+// buildCanonicalUsage converts raw provider usage into canonical form (pure computation, no DB).
+func buildCanonicalUsage(rawUsage *relaycommon.ProviderUsage) *relaycommon.CanonicalUsage {
+	canonical := &relaycommon.CanonicalUsage{RawUsage: rawUsage}
+	switch {
+	case rawUsage.TotalTokens > 0:
+		canonical.BillableUnit = "token"
+		canonical.BillableUnits = float64(rawUsage.TotalTokens)
+		canonical.InputUnits = float64(rawUsage.PromptTokens)
+		canonical.OutputUnits = float64(rawUsage.CompletionTokens)
+	case rawUsage.DurationSec > 0:
+		canonical.BillableUnit = "second"
+		canonical.BillableUnits = rawUsage.DurationSec
+	case rawUsage.SessionMinutes > 0:
+		canonical.BillableUnit = "minute"
+		canonical.BillableUnits = rawUsage.SessionMinutes
+	case rawUsage.Actions > 0:
+		canonical.BillableUnit = "action"
+		canonical.BillableUnits = float64(rawUsage.Actions)
+	case rawUsage.BillableUnits > 0:
+		canonical.BillableUnit = rawUsage.BillableUnit
+		canonical.BillableUnits = rawUsage.BillableUnits
+	default:
+		canonical.BillableUnit = "request"
+		canonical.BillableUnits = 1
+	}
+	return canonical
+}
+
+// LookupPricing bridges BaseGate pricing to the existing ratio_setting system.
+// Phase 5: reads model ratio from the system-wide configuration.
+func LookupPricing(modelName string, billingMode string) *relaycommon.PricingSnapshot {
+	value, usePrice, exists := ratio_setting.GetModelRatioOrPrice(modelName)
+	if !exists {
+		return &relaycommon.PricingSnapshot{
+			BillingMode:  "metered",
+			BillableUnit: "token",
+			UnitPrice:    0,
+			Currency:     "usd",
+		}
 	}
 
-	return nil
+	if usePrice {
+		// Price-based model (e.g. dall-e, suno): value is direct $ per request/image
+		return &relaycommon.PricingSnapshot{
+			BillingMode:  "per_call",
+			BillableUnit: "request",
+			UnitPrice:    value,
+			Currency:     "usd",
+		}
+	}
+
+	// Ratio-based model: value is the ratio (1 = $0.002/1K tokens)
+	// Convert ratio to per-token price: ratio * $0.002 / 1000 = ratio * 0.000002
+	perTokenPrice := value * 0.002 / 1000.0
+	return &relaycommon.PricingSnapshot{
+		BillingMode:  "metered",
+		BillableUnit: "token",
+		UnitPrice:    perTokenPrice,
+		Currency:     "usd",
+	}
 }
 
 // FinalizeSessionBilling is the billing pipeline for closed sessions.
+// Wraps usage + billing + ledger in a single transaction.
 func FinalizeSessionBilling(session *model.BgSession) error {
 	// 1. Aggregate action usage
 	actions, err := model.GetBgSessionActionsBySessionID(session.SessionID)
@@ -170,7 +276,7 @@ func FinalizeSessionBilling(session *model.BgSession) error {
 	actionCount := 0
 	for _, action := range actions {
 		if action.UsageJSON != "" {
-			actionCount++ // We can parse precise usage later if needed
+			actionCount++
 		}
 	}
 
@@ -180,50 +286,70 @@ func FinalizeSessionBilling(session *model.BgSession) error {
 		totalMinutes = float64(session.ClosedAt-session.CreatedAt) / 60.0
 	}
 
-	// 3. Create canonical usage record
+	// 3. Build usage record struct
 	rawUsageStr := fmt.Sprintf(`{"session_minutes":%f,"action_count":%d}`, totalMinutes, len(actions))
 	usageRecord := &model.BgUsageRecord{
 		UsageID:       relaycommon.GenerateUsageID(),
-		ResponseID:    session.SessionID, // We bill by session ID
+		ResponseID:    session.SessionID,
 		OrgID:         session.OrgID,
 		ProjectID:     session.ProjectID,
 		Model:         session.Model,
-		Provider:      session.AdapterName, // Close enough for session
+		Provider:      session.AdapterName,
 		BillableUnits: totalMinutes,
 		BillableUnit:  "minute",
-		InputUnits:    float64(actionCount), // Track action count as input units
+		InputUnits:    float64(actionCount),
 		RawUsageJSON:  rawUsageStr,
 		CreatedAt:     time.Now().Unix(),
 	}
-	
-	if err := usageRecord.Insert(); err != nil {
-		common.SysError(fmt.Sprintf("session_billing: failed to persist usage: %v", err))
-	}
 
-	// 4. Calculate billing (Mock pricing for now, phase 4 handles complex lookup)
-	pricing := &relaycommon.PricingSnapshot{
-		BillingMode:  "metered",
-		BillableUnit: "minute",
-		UnitPrice:    0.0, // Default to zero unless overriden by model map
-		Currency:     "usd",
-	}
+	// 4. Lookup real pricing from ratio_setting
+	pricing := LookupPricing(session.Model, "hosted")
 
-	canonicalUsage := &relaycommon.CanonicalUsage{
-		BillableUnits: totalMinutes,
-		BillableUnit:  "minute",
-	}
+	// 5. Transactional write
+	return model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(usageRecord).Error; err != nil {
+			return fmt.Errorf("session usage insert failed: %w", err)
+		}
 
-	billingRecord, _ := CalculateBilling(session.SessionID, canonicalUsage, pricing)
+		if pricing.UnitPrice == 0 {
+			common.SysLog(fmt.Sprintf("session_billing: finalized %s — 0.00 usd (%.2f mins), %d actions",
+				session.SessionID, totalMinutes, actionCount))
+			return nil
+		}
 
-	// 5. Ledger Entry
-	if billingRecord != nil && billingRecord.Amount > 0 {
-		_, _ = PostLedgerEntry(session.OrgID, billingRecord, "debit")
+		amount := totalMinutes * pricing.UnitPrice
+		billingRecord := &model.BgBillingRecord{
+			BillingID:    relaycommon.GenerateBillingID(),
+			ResponseID:   session.SessionID,
+			BillingMode:  pricing.BillingMode,
+			BillableUnit: "minute",
+			Quantity:     totalMinutes,
+			UnitPrice:    pricing.UnitPrice,
+			Amount:       amount,
+			Currency:     pricing.Currency,
+			CreatedAt:    time.Now().Unix(),
+		}
+		if err := tx.Create(billingRecord).Error; err != nil {
+			return fmt.Errorf("session billing insert failed: %w", err)
+		}
+
+		ledgerEntry := &model.BgLedgerEntry{
+			LedgerEntryID: relaycommon.GenerateLedgerEntryID(),
+			OrgID:         session.OrgID,
+			ResponseID:    session.SessionID,
+			BillingID:     billingRecord.BillingID,
+			EntryType:     "debit",
+			Amount:        amount,
+			Currency:      pricing.Currency,
+			CreatedAt:     time.Now().Unix(),
+		}
+		if err := tx.Create(ledgerEntry).Error; err != nil {
+			return fmt.Errorf("session ledger insert failed: %w", err)
+		}
+
 		common.SysLog(fmt.Sprintf("session_billing: finalized %s — %.2f %s (%.2f mins)",
-			session.SessionID, billingRecord.Amount, billingRecord.Currency, totalMinutes))
-	} else {
-		common.SysLog(fmt.Sprintf("session_billing: finalized %s — 0.00 usd (%.2f mins), %d actions",
-			session.SessionID, totalMinutes, actionCount))
-	}
-
-	return nil
+			session.SessionID, amount, pricing.Currency, totalMinutes))
+		return nil
+	})
 }
+

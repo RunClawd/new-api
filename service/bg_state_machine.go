@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
 // ProviderEvent represents a status update from a provider adapter.
@@ -218,10 +219,29 @@ func ApplyProviderEvent(responseID, attemptID string, event ProviderEvent) error
 		return nil // race lost — another event was applied first
 	}
 
-	// 7. If terminal: trigger webhook outbox
+	// 7. If terminal: finalize billing + trigger webhook outbox
 	if isTerminal {
 		common.SysLog(fmt.Sprintf("state machine: response %s finalized with status %s", responseID, newResponseStatus))
 		
+		// 7a. Billing pipeline (transactional: usage + billing + ledger)
+		// Only bill for succeeded responses (failed/canceled/expired = no charge)
+		billingStatus := "none"
+		if resp.Status == model.BgResponseStatusSucceeded && event.RawUsage != nil {
+			rawUsage := eventRawUsageToProviderUsage(event.RawUsage)
+			pricing := LookupPricing(resp.Model, resp.BillingMode)
+			if err := FinalizeBilling(responseID, resp.OrgID, rawUsage, pricing); err != nil {
+				common.SysError(fmt.Sprintf("billing failed for %s: %v", responseID, err))
+				billingStatus = "failed"
+			} else {
+				billingStatus = "completed"
+			}
+		}
+		// Update billing_status (best-effort, does not affect response state)
+		_ = model.DB.Model(&model.BgResponse{}).
+			Where("id = ?", resp.ID).
+			Update("billing_status", billingStatus).Error
+		
+		// 7b. Webhook outbox
 		if resp.WebhookURL != "" {
 			payload := map[string]interface{}{
 				"id":     resp.ResponseID,
@@ -317,4 +337,74 @@ func tryAutoAdvance(resp *model.BgResponse, target model.BgResponseStatus) bool 
 	}
 
 	return false
+}
+
+// eventRawUsageToProviderUsage converts the untyped RawUsage map from a
+// ProviderEvent into a typed ProviderUsage struct for the billing pipeline.
+func eventRawUsageToProviderUsage(raw map[string]interface{}) *relaycommon.ProviderUsage {
+	if raw == nil {
+		return nil
+	}
+	usage := &relaycommon.ProviderUsage{}
+	if v, ok := raw["prompt_tokens"]; ok {
+		usage.PromptTokens = toInt(v)
+	}
+	if v, ok := raw["completion_tokens"]; ok {
+		usage.CompletionTokens = toInt(v)
+	}
+	if v, ok := raw["total_tokens"]; ok {
+		usage.TotalTokens = toInt(v)
+	}
+	if v, ok := raw["duration_sec"]; ok {
+		usage.DurationSec = toFloat64(v)
+	}
+	if v, ok := raw["session_minutes"]; ok {
+		usage.SessionMinutes = toFloat64(v)
+	}
+	if v, ok := raw["actions"]; ok {
+		usage.Actions = toInt(v)
+	}
+	if v, ok := raw["billable_units"]; ok {
+		usage.BillableUnits = toFloat64(v)
+	}
+	if v, ok := raw["billable_unit"]; ok {
+		if s, ok := v.(string); ok {
+			usage.BillableUnit = s
+		}
+	}
+	// Auto-compute total_tokens if missing
+	if usage.TotalTokens == 0 && (usage.PromptTokens > 0 || usage.CompletionTokens > 0) {
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+	return usage
+}
+
+func toInt(v interface{}) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	case float32:
+		return int(n)
+	default:
+		return 0
+	}
+}
+
+func toFloat64(v interface{}) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case float32:
+		return float64(n)
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	default:
+		return 0
+	}
 }
