@@ -5,18 +5,20 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/basegate"
 	"github.com/gin-gonic/gin"
 )
 
 // AdminBgUsageStats represents the aggregate metrics for the BaseGate usage dashboard KPI cards.
 // Mirrors model.BgUsageStatsResult — kept local to avoid import-cycle with dto.
 type AdminBgUsageStats struct {
-	TotalRequests  int64   `json:"total_requests"`
-	SucceededCount int64   `json:"succeeded_count"`
-	FailedCount    int64   `json:"failed_count"`
-	RunningCount   int64   `json:"running_count"`
-	TotalCost      float64 `json:"total_cost"`
-	TotalTokens    int64   `json:"total_tokens"`
+	TotalRequests  int64                        `json:"total_requests"`
+	SucceededCount int64                        `json:"succeeded_count"`
+	FailedCount    int64                        `json:"failed_count"`
+	RunningCount   int64                        `json:"running_count"`
+	TotalCost      float64                      `json:"total_cost"`
+	TotalTokens    int64                        `json:"total_tokens"`
+	Adapters       []basegate.AdapterCircuitInfo `json:"adapters,omitempty"`
 }
 
 // AdminBgResponseDetail represents the full details of a BaseGate response.
@@ -178,5 +180,6 @@ func AdminGetBgUsageStats(c *gin.Context) {
 		RunningCount:   res.RunningCount,
 		TotalTokens:    res.TotalTokens,
 		TotalCost:      res.TotalCost,
+		Adapters:       basegate.ListCircuitStates(),
 	})
 }

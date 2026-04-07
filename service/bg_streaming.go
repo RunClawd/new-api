@@ -66,6 +66,15 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 
 	// 4. Fallback Loop
 	for i, adapter := range adapters {
+		// Circuit breaker check — skip adapters whose circuit is OPEN
+		if !basegate.CanAttempt(adapter.Name()) {
+			common.SysLog(fmt.Sprintf("fallback: %s circuit open, skipping", adapter.Name()))
+			if i < len(adapters)-1 {
+				continue
+			}
+			return fmt.Errorf("all adapters unavailable (circuit open)")
+		}
+
 		validation := adapter.Validate(req)
 		if validation != nil && !validation.Valid {
 			common.SysLog(fmt.Sprintf("fallback: %s invalidated pre-execution", adapter.Name()))
@@ -98,6 +107,7 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 
 		if streamErr != nil {
 			common.SysLog(fmt.Sprintf("fallback: %s failed pre-execution (stream err): %v", adapter.Name(), streamErr))
+			basegate.RecordFailure(adapter.Name())
 			// Immediately fail attempt
 			event := ProviderEvent{
 				Status: "failed",
@@ -114,7 +124,8 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 			break
 		}
 
-		// Success
+		// Stream established successfully
+		basegate.RecordSuccess(adapter.Name())
 		stream = s
 		finalErr = nil
 		break

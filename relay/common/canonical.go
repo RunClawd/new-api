@@ -201,6 +201,11 @@ func GenerateEventID() string {
 	return "evt_" + generateNanoID(20)
 }
 
+// GenerateProjectID generates a unique project ID with "proj_" prefix.
+func GenerateProjectID() string {
+	return "proj_" + generateNanoID(20)
+}
+
 // NowUnix returns current Unix timestamp.
 func NowUnix() int64 {
 	return time.Now().Unix()

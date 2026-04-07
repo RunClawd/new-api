@@ -86,6 +86,9 @@ type BgResponse struct {
 	// PricingSnapshotJSON holds the pricing frozen at invocation time (immutable).
 	// Used by the state machine to avoid price-drift on long-running async/session responses.
 	PricingSnapshotJSON  string           `json:"pricing_snapshot_json" gorm:"type:text"`
+	// EstimatedQuota is the pre-authorized quota amount reserved at dispatch time.
+	// Used by the state machine to settle (refund/charge difference) at terminal state.
+	EstimatedQuota       int              `json:"estimated_quota" gorm:"default:0"`
 }
 
 func (BgResponse) TableName() string {

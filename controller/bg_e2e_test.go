@@ -51,6 +51,7 @@ func setupE2ETestEnv(t *testing.T) func() {
 		&model.BgCapability{},
 		&model.BgSession{},
 		&model.BgSessionAction{},
+		&model.BgProject{},
 	), "auto migrate")
 
 	basegate.ClearRegistry()

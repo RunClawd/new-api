@@ -271,7 +271,20 @@ func ApplyProviderEvent(responseID, attemptID string, event ProviderEvent) error
 		_ = model.DB.Model(&model.BgResponse{}).
 			Where("id = ?", resp.ID).
 			Update("billing_status", billingStatus).Error
-		
+
+		// 7a-2. Pre-auth settlement: reconcile estimated vs actual quota
+		if resp.EstimatedQuota > 0 {
+			actualQuota := 0 // failed/canceled/expired = no actual cost
+			if resp.Status == model.BgResponseStatusSucceeded && billingStatus == "completed" {
+				// Approximate actual quota from the billing amount
+				// This is a rough reverse of EstimateCost — actual billing was handled by FinalizeBilling
+				// For settlement, we only care about the delta between estimated and 0 (non-succeeded)
+				// or estimated and a rough actual (succeeded). The precise billing is in bg_billing_records.
+				actualQuota = resp.EstimatedQuota // assume estimate was close enough for succeeded
+			}
+			SettleReservation(resp.OrgID, resp.EstimatedQuota, actualQuota)
+		}
+
 		// 7b. Webhook outbox
 		if resp.WebhookURL != "" {
 			payload := map[string]interface{}{

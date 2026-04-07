@@ -97,6 +97,9 @@ func PostResponses(c *gin.Context) {
 		if err == service.ErrIdempotencyConflict {
 			statusCode = http.StatusConflict
 			errCode = "idempotency_mismatch"
+		} else if err == service.ErrInsufficientQuota {
+			statusCode = http.StatusPaymentRequired
+			errCode = "insufficient_quota"
 		}
 		c.JSON(statusCode, gin.H{
 			"error": gin.H{

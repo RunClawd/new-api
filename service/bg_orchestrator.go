@@ -69,6 +69,12 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 	pricingSnapshot := LookupPricing(req.Model, req.BillingContext.BillingMode)
 	snapshotJSON, _ := common.Marshal(pricingSnapshot)
 
+	// 3a. Pre-authorization: estimate cost and reserve quota
+	estimatedQuota := EstimateCost(pricingSnapshot, req.Input)
+	if err := TryReserveQuota(req.OrgID, estimatedQuota); err != nil {
+		return nil, err // ErrInsufficientQuota
+	}
+
 	// 4. Create response record
 	now := time.Now().Unix()
 	bgResp := &model.BgResponse{
@@ -94,16 +100,31 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 	bgResp.InputJSON = string(inputJSON)
 
 	if err := bgResp.Insert(); err != nil {
+		// Refund reservation on insert failure
+		SettleReservation(req.OrgID, estimatedQuota, 0)
 		return nil, fmt.Errorf("failed to create response record: %w", err)
 	}
 
+	// Store estimated quota on response for settlement at terminal state
+	bgResp.EstimatedQuota = estimatedQuota
+
 	_ = model.RecordBgAuditLog(req.OrgID, req.RequestID, req.ResponseID, "response_created", map[string]interface{}{
-		"model": req.Model,
-		"mode":  req.ExecutionOptions.Mode,
+		"model":           req.Model,
+		"mode":            req.ExecutionOptions.Mode,
+		"estimated_quota": estimatedQuota,
 	})
 
 	// 5. Fallback loop for Sync Invocation
 	for i, adapter := range adapters {
+		// Circuit breaker check — skip adapters whose circuit is OPEN
+		if !basegate.CanAttempt(adapter.Name()) {
+			common.SysLog(fmt.Sprintf("fallback: %s circuit open, skipping", adapter.Name()))
+			if i < len(adapters)-1 {
+				continue
+			}
+			return nil, fmt.Errorf("all adapters unavailable (circuit open)")
+		}
+
 		validation := adapter.Validate(req)
 		if validation != nil && !validation.Valid {
 			common.SysLog(fmt.Sprintf("fallback: %s invalidated pre-execution", adapter.Name()))
@@ -133,6 +154,7 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 
 		if invokeErr != nil {
 			common.SysLog(fmt.Sprintf("fallback: %s failed pre-execution (invoke err): %v", adapter.Name(), invokeErr))
+			basegate.RecordFailure(adapter.Name())
 			event := ProviderEvent{
 				Status: "failed",
 				Error: map[string]interface{}{
@@ -149,6 +171,7 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 
 		if result.Status == "failed" && result.Error != nil && result.Error.Code == "provider_unavailable" {
 			common.SysLog(fmt.Sprintf("fallback: %s returned provider_unavailable: %s", adapter.Name(), result.Error.Message))
+			basegate.RecordFailure(adapter.Name())
 			_ = ApplyProviderEvent(req.ResponseID, attemptID, adapterResultToEvent(result))
 			if i < len(adapters)-1 {
 				continue // try next
@@ -157,6 +180,7 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 		}
 
 		// Success or un-retryable failure
+		basegate.RecordSuccess(adapter.Name())
 		_ = ApplyProviderEvent(req.ResponseID, attemptID, adapterResultToEvent(result))
 		break
 	}
@@ -185,6 +209,12 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 	// 3. Freeze pricing snapshot at invocation time
 	pricingSnapshot := LookupPricing(req.Model, req.BillingContext.BillingMode)
 	snapshotJSON, _ := common.Marshal(pricingSnapshot)
+
+	// 3a. Pre-authorization: estimate cost and reserve quota
+	estimatedQuota := EstimateCost(pricingSnapshot, req.Input)
+	if err := TryReserveQuota(req.OrgID, estimatedQuota); err != nil {
+		return nil, err // ErrInsufficientQuota
+	}
 
 	// 4. Create response record
 	now := time.Now().Unix()
@@ -221,6 +251,15 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 
 	// 5. Fallback loop for Async Invocation
 	for i, adapter := range adapters {
+		// Circuit breaker check — skip adapters whose circuit is OPEN
+		if !basegate.CanAttempt(adapter.Name()) {
+			common.SysLog(fmt.Sprintf("fallback: %s circuit open, skipping", adapter.Name()))
+			if i < len(adapters)-1 {
+				continue
+			}
+			return nil, fmt.Errorf("all adapters unavailable (circuit open)")
+		}
+
 		validation := adapter.Validate(req)
 		if validation != nil && !validation.Valid {
 			common.SysLog(fmt.Sprintf("fallback: %s invalidated pre-execution", adapter.Name()))
@@ -250,6 +289,7 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 
 		if invokeErr != nil {
 			common.SysLog(fmt.Sprintf("fallback: %s failed pre-execution (invoke err): %v", adapter.Name(), invokeErr))
+			basegate.RecordFailure(adapter.Name())
 			event := ProviderEvent{
 				Status: "failed",
 				Error: map[string]interface{}{
@@ -266,6 +306,7 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 
 		if result.Status == "failed" && result.Error != nil && result.Error.Code == "provider_unavailable" {
 			common.SysLog(fmt.Sprintf("fallback: %s returned provider_unavailable: %s", adapter.Name(), result.Error.Message))
+			basegate.RecordFailure(adapter.Name())
 			_ = ApplyProviderEvent(req.ResponseID, attemptID, adapterResultToEvent(result))
 			if i < len(adapters)-1 {
 				continue
@@ -273,6 +314,7 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 			break
 		}
 
+		basegate.RecordSuccess(adapter.Name())
 		event := adapterResultToEvent(result)
 		_ = ApplyProviderEvent(req.ResponseID, attemptID, event)
 		break

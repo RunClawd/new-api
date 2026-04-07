@@ -291,6 +291,7 @@ func migrateDB() error {
 		&BgWebhookEvent{},
 		&BgCapability{},
 		&BgAuditLog{},
+		&BgProject{},
 	)
 	if err != nil {
 		return err

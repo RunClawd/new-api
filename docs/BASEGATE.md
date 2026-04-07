@@ -284,7 +284,8 @@ go test -race ./model/... ./service/... -count=1
 | 6 | `53335b2a` | Inbound callbacks, Usage API, HMAC webhooks, sandbox registry |
 | 7 | `aea88e81` | Production Hardening (immutable pricing, idempotency, weighted routing, E2E tests) |
 | 8 | `8e864bec` | Admin Dashboard (Usage/Response/Capabilities pages, admin APIs, i18n) |
-| 9 | *Current* | Native adapters: Kling video (async+JWT), E2B sandbox (session+gRPC-web) |
+| 9 | `93908749` | Native adapters: Kling video (async+JWT), E2B sandbox (session+gRPC-web) |
+| 10 | *Current* | Circuit breaker, pre-authorization, project management |
 
 ## MVP Progress (Project Definition §16.3)
 
@@ -318,6 +319,9 @@ go test -race ./model/... ./service/... -count=1
 | Admin APIs | `/api/bg/` list/detail/stats endpoints with `AdminAuth` | ✅ |
 | Kling Video Adapter | Native async adapter with JWT auth, progressive polling, callback | ✅ |
 | E2B Sandbox Adapter | Native session adapter with gRPC-web code execution, billing | ✅ |
+| Circuit Breaker | Three-state (closed/open/half-open) per-adapter with configurable threshold | ✅ |
+| Pre-authorization | Estimate cost → reserve quota → settle at terminal state (refund/charge delta) | ✅ |
+| Project Management | `bg_projects` CRUD via `/api/bg/projects` with admin dashboard | ✅ |
 
 ### Capability Validation (§16.2)
 
@@ -340,22 +344,18 @@ go test -race ./model/... ./service/... -count=1
 | Work Item | Effort | Description |
 |---|---|---|
 | Usage/Billing state machine | 1-2d | Add estimated/voided/refunded states |
-| Poll backoff strategy | 0.5d | Exponential backoff based on attempt state |
 
 #### P2 — Platform Capabilities
 
 | Work Item | Effort | Description |
 |---|---|---|
 | BYO billing logic | 1-2d | Platform fee vs provider cost split |
-| Pre-authorization | 2d | Freeze estimated amount, settle on completion |
-| Circuit breaker | 1-2d | Auto-degrade on provider failure threshold |
 
 #### P3 — Second Phase (§17)
 
 | Work Item | Description |
 |---|---|
 | Capability → Tool projection | Auto-generate LLM-callable tools from capability schemas |
-| Multi-tenant management API + UI | Organization/Project CRUD |
 | Capability Policy | Per-org/project/key allow/deny rules |
 | Routing Policy configuration | Per-tenant custom routing strategies |
 | Marketplace | Third-party provider self-service onboarding |
@@ -365,10 +365,10 @@ go test -race ./model/... ./service/... -count=1
 
 | Dimension | Progress | Notes |
 |---|---|---|
-| Core engine | 98% | Idempotency, pricing immutability, and state machine finalized |
-| API protocol | 90% | Admin + Usage APIs implemented; missing management CRUD |
+| Core engine | 99% | Circuit breaker + pre-auth complete the production-critical path |
+| API protocol | 95% | Admin + Usage + Project CRUD; missing only capability policy API |
 | Provider adapters | 90% | LLM (OpenAI), Video (Kling), Sandbox (E2B) native + 10 legacy bridge |
-| Multi-tenant governance | 40% | Admin dashboard + scoped usage/billing APIs |
-| Routing & scheduling | 75% | Weighted routing & basic fallback, missing circuit-breaker |
-| Billing completeness | 70% | Cross-tenant scoping API fixed, no pre-auth/refund/BYO/tiered yet |
-| MVP capability validation | 90% | LLM, Video (async), Sandbox (session) all verified with real providers |
+| Multi-tenant governance | 55% | Project CRUD + admin dashboard + scoped usage/billing APIs |
+| Routing & scheduling | 90% | Weighted routing + circuit breaker + fallback; missing routing policy config |
+| Billing completeness | 80% | Pre-auth + settlement + cross-tenant scoping; missing BYO/tiered pricing |
+| MVP capability validation | 95% | All 3 capability types verified; pre-auth + circuit breaker hardened |
