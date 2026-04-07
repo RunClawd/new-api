@@ -72,29 +72,73 @@ func itoa(n int) string {
 
 // RegisterNativeAdapters dynamically initializes Native Adapters from the database.
 func RegisterNativeAdapters() {
+	// --- OpenAI LLM adapters ---
 	var channels []*model.Channel
-	// Note: First key strategy applies. If multi-key, we just use the original Key string
-	// or the first one. For native adapter init, we take GetKeys()[0] as simplest approach,
-	// or just pass `ch.Key` and handle rotation internally. For now, pass first key.
 	if err := model.DB.Where("type = ? AND status = 1", constant.ChannelTypeOpenAI).Find(&channels).Error; err != nil {
 		common.SysError("bg_init: failed to load openai channels: " + err.Error())
-		return
+	} else {
+		count := 0
+		for _, ch := range channels {
+			keys := ch.GetKeys()
+			if len(keys) == 0 {
+				continue
+			}
+			apiKey := keys[0]
+			adapter := adapters.NewOpenAILLMAdapter(ch.Id, ch.Name, apiKey, ch.GetBaseURL())
+			basegate.RegisterAdapter(adapter)
+			count++
+			common.SysLog(fmt.Sprintf("bg_init: registered native adapter openai_native_ch%d", ch.Id))
+		}
+		common.SysLog(fmt.Sprintf("bg_init: total OpenAI native adapters registered: %d", count))
 	}
 
-	count := 0
-	for _, ch := range channels {
+	// --- Kling Video adapters ---
+	var klingChannels []*model.Channel
+	if err := model.DB.Where("type = ? AND status = 1", constant.ChannelTypeKling).Find(&klingChannels).Error; err != nil {
+		common.SysError("bg_init: failed to load kling channels: " + err.Error())
+	} else {
+		klingCount := 0
+		for _, ch := range klingChannels {
+			keys := ch.GetKeys()
+			if len(keys) == 0 {
+				continue
+			}
+			adapter := adapters.NewKlingVideoAdapter(ch.Id, ch.Name, keys[0], ch.GetBaseURL())
+			basegate.RegisterAdapter(adapter)
+			klingCount++
+			common.SysLog(fmt.Sprintf("bg_init: registered native adapter kling_native_ch%d", ch.Id))
+		}
+		common.SysLog(fmt.Sprintf("bg_init: total Kling native adapters registered: %d", klingCount))
+	}
+
+	// --- E2B Sandbox adapters (Channel table first, env var fallback) ---
+	var e2bChannels []*model.Channel
+	if err := model.DB.Where("type = ? AND status = 1", constant.ChannelTypeE2B).Find(&e2bChannels).Error; err != nil {
+		common.SysError("bg_init: failed to load e2b channels: " + err.Error())
+	}
+	e2bCount := 0
+	for _, ch := range e2bChannels {
 		keys := ch.GetKeys()
 		if len(keys) == 0 {
 			continue
 		}
-		apiKey := keys[0] // pick the first key for simplicity 
-		adapter := adapters.NewOpenAILLMAdapter(ch.Id, ch.Name, apiKey, ch.GetBaseURL())
+		adapter := adapters.NewE2BSandboxAdapter(ch.Id, keys[0], ch.GetBaseURL(), "code-interpreter-v1")
 		basegate.RegisterAdapter(adapter)
-		count++
-		common.SysLog(fmt.Sprintf("bg_init: registered native adapter openai_native_ch%d", ch.Id))
+		e2bCount++
+		common.SysLog(fmt.Sprintf("bg_init: registered native adapter e2b_sandbox_ch%d", ch.Id))
 	}
-	common.SysLog(fmt.Sprintf("bg_init: total native adapters registered: %d", count))
+	// Fallback to environment variable if no E2B channels configured
+	if e2bCount == 0 {
+		if e2bKey := common.GetEnvOrDefaultString("E2B_API_KEY", ""); e2bKey != "" {
+			adapter := adapters.NewE2BSandboxAdapter(0, e2bKey, "", "code-interpreter-v1")
+			basegate.RegisterAdapter(adapter)
+			e2bCount++
+			common.SysLog("bg_init: registered E2B sandbox adapter from E2B_API_KEY env var")
+		}
+	}
+	common.SysLog(fmt.Sprintf("bg_init: total E2B sandbox adapters registered: %d", e2bCount))
 
+	// --- Dev Sandbox adapter ---
 	if common.DebugEnabled {
 		sandboxAdapter := &adapters.DummySandboxAdapter{NameID: "dev_sandbox"}
 		basegate.RegisterAdapter(sandboxAdapter)

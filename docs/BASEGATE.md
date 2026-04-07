@@ -236,7 +236,10 @@ new-api/
 │   │   ├── legacy_wrapper.go       # Bridge existing TaskAdaptors
 │   │   └── adapters/
 │   │       ├── openai_llm_adapter.go      # Native OpenAI adapter (raw HTTP)
-│   │       └── openai_llm_adapter_test.go
+│   │       ├── kling_video_adapter.go     # Native Kling async video adapter (JWT auth)
+│   │       ├── kling_jwt.go              # Kling JWT token generation
+│   │       ├── e2b_sandbox_adapter.go    # Native E2B session adapter (gRPC-web)
+│   │       └── *_test.go                 # Adapter unit + integration tests
 │   ├── bg_register.go              # RegisterAllLegacyTaskAdaptors + RegisterNativeAdapters
 │   └── common/
 │       ├── canonical.go            # CanonicalRequest / AdapterResult / ID generators
@@ -261,6 +264,9 @@ go test ./service/... -v -run "TestApplyProviderEvent" -count=1
 # Adapter tests (mock server)
 go test ./relay/basegate/adapters/... -v -count=1
 
+# E2B integration test (requires E2B_API_KEY env var)
+E2B_API_KEY=... go test ./relay/basegate/adapters/... -run TestE2BIntegration -v -count=1
+
 # Race detection
 go test -race ./model/... ./service/... -count=1
 ```
@@ -275,8 +281,10 @@ go test -race ./model/... ./service/... -count=1
 | 4 | `58a2bb2a` | Webhook outbox, SSE streaming, model discovery |
 | 5 | `247acd77` `1f447865` `44138b6a` | Billing wiring, OpenAI adapter, routing, multi-tenant, audit |
 | docs | `0bd5ac8c` | Architecture document, project structure refresh |
-| 6 | *Pending* | Inbound callbacks, Usage API, HMAC webhooks, sandbox registry |
-| 7 | *Pending* | Production Hardening (immutable pricing, idempotency, weighted routing, E2E tests) |
+| 6 | `53335b2a` | Inbound callbacks, Usage API, HMAC webhooks, sandbox registry |
+| 7 | `aea88e81` | Production Hardening (immutable pricing, idempotency, weighted routing, E2E tests) |
+| 8 | `8e864bec` | Admin Dashboard (Usage/Response/Capabilities pages, admin APIs, i18n) |
+| 9 | *Current* | Native adapters: Kling video (async+JWT), E2B sandbox (session+gRPC-web) |
 
 ## MVP Progress (Project Definition §16.3)
 
@@ -288,7 +296,7 @@ go test -race ./model/... ./service/... -count=1
 | `/v1/responses` | `controller/bg_responses.go` — sync/async/stream | ✅ |
 | `/v1/tasks/{id}` | `GET /v1/bg/responses/:id` (equivalent) | ✅ |
 | API Key | Existing token system reused | ✅ |
-| Provider adapter | `ProviderAdapter` interface + OpenAI native + 10 legacy bridge | ✅ |
+| Provider adapter | `ProviderAdapter` interface + OpenAI/Kling/E2B native + 10 legacy bridge | ✅ |
 | Routing strategy | 1:N registry + fallback loop | ✅ |
 | usage event | `bg_usage_records` table + normalization | ✅ |
 | ledger | `bg_ledger_entries` table + transactional writes | ✅ |
@@ -306,14 +314,18 @@ go test -race ./model/... ./service/... -count=1
 | Usage query API | `GET /v1/bg/usage` with org scoping and date grouping | ✅ |
 | Weighted routing | Router fallback dynamically follows `CapabilityBinding` weights | ✅ |
 | Webhook Security | `X-BaseGate-Signature256` HMAC signing logic | ✅ |
+| Admin Dashboard | Usage KPI cards, Response Explorer, Capabilities page | ✅ |
+| Admin APIs | `/api/bg/` list/detail/stats endpoints with `AdminAuth` | ✅ |
+| Kling Video Adapter | Native async adapter with JWT auth, progressive polling, callback | ✅ |
+| E2B Sandbox Adapter | Native session adapter with gRPC-web code execution, billing | ✅ |
 
 ### Capability Validation (§16.2)
 
 | Capability Type | Purpose | Status |
 |---|---|---|
 | **LLM** (sync + stream) | Validate sync and streaming | ✅ Verified with real OpenAI API |
-| **Image/Video** (async + poll) | Validate async + metering + callback/poll | ⚠️ Legacy bridge only, no callback inbound |
-| **Browser/Sandbox** (session) | Validate session capabilities | ⚠️ Mock adapter only |
+| **Image/Video** (async + poll) | Validate async + metering + callback/poll | ✅ Kling native adapter with JWT, progressive polling, callback |
+| **Browser/Sandbox** (session) | Validate session capabilities | ✅ E2B native adapter verified end-to-end (create → execute → close) |
 
 ### Not Yet Completed
 
@@ -334,8 +346,6 @@ go test -race ./model/... ./service/... -count=1
 
 | Work Item | Effort | Description |
 |---|---|---|
-| Browser/Sandbox native adapter | 3-5d | Real session-mode adapter (Playwright, Docker) |
-| Async native adapter | 2-3d | Real async adapter (video processing provider) |
 | BYO billing logic | 1-2d | Platform fee vs provider cost split |
 | Pre-authorization | 2d | Freeze estimated amount, settle on completion |
 | Circuit breaker | 1-2d | Auto-degrade on provider failure threshold |
@@ -349,7 +359,6 @@ go test -race ./model/... ./service/... -count=1
 | Capability Policy | Per-org/project/key allow/deny rules |
 | Routing Policy configuration | Per-tenant custom routing strategies |
 | Marketplace | Third-party provider self-service onboarding |
-| Frontend Dashboard | Usage/billing/capability management UI |
 | Complex pricing | Tiered, subscription + overage, credit system |
 
 ### Completion Summary
@@ -357,9 +366,9 @@ go test -race ./model/... ./service/... -count=1
 | Dimension | Progress | Notes |
 |---|---|---|
 | Core engine | 98% | Idempotency, pricing immutability, and state machine finalized |
-| API protocol | 85% | Usage API implemented; missing management APIs (capabilities/providers) |
-| Provider adapters | 70% | Only LLM has native adapter |
-| Multi-tenant governance | 35% | Foundational scoping implemented in usage/billing APIs |
-| Routing & scheduling | 75% | Weighted routing & basic fallback implemented, missing circuit-breaker |
+| API protocol | 90% | Admin + Usage APIs implemented; missing management CRUD |
+| Provider adapters | 90% | LLM (OpenAI), Video (Kling), Sandbox (E2B) native + 10 legacy bridge |
+| Multi-tenant governance | 40% | Admin dashboard + scoped usage/billing APIs |
+| Routing & scheduling | 75% | Weighted routing & basic fallback, missing circuit-breaker |
 | Billing completeness | 70% | Cross-tenant scoping API fixed, no pre-auth/refund/BYO/tiered yet |
-| MVP capability validation | 50% | Only LLM verified end-to-end with real provider |
+| MVP capability validation | 90% | LLM, Video (async), Sandbox (session) all verified with real providers |

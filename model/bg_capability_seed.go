@@ -86,6 +86,28 @@ func SeedBgCapabilities() error {
 			Status:         "active",
 			Description:    "Interactive sandbox session (browser/code). Billed per minute.",
 		},
+		{
+			CapabilityName: "bg.video.generate.standard",
+			Domain:         "video",
+			Action:         "generate",
+			Tier:           "standard",
+			BillableUnit:   "second",
+			SupportedModes: "async",
+			SupportsCancel: false,
+			Status:         "active",
+			Description:    "Async video generation (standard tier). Billed per second of output video.",
+		},
+		{
+			CapabilityName: "bg.video.generate.pro",
+			Domain:         "video",
+			Action:         "generate",
+			Tier:           "pro",
+			BillableUnit:   "second",
+			SupportedModes: "async",
+			SupportsCancel: false,
+			Status:         "active",
+			Description:    "Async video generation (pro tier). Higher quality model, billed per second.",
+		},
 	}
 
 	// Use GORM OnConflict for cross-DB upsert.
