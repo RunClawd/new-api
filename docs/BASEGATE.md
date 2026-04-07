@@ -274,3 +274,91 @@ go test -race ./model/... ./service/... -count=1
 | 3 | `28967971` | Session management, lifecycle worker |
 | 4 | `58a2bb2a` | Webhook outbox, SSE streaming, model discovery |
 | 5 | `247acd77` `1f447865` `44138b6a` | Billing wiring, OpenAI adapter, routing, multi-tenant, audit |
+| docs | `0bd5ac8c` | Architecture document, project structure refresh |
+
+## MVP Progress (Project Definition §16.3)
+
+### Completed
+
+| Requirement | Implementation | Status |
+|---|---|---|
+| `/v1/models` | `controller/model.go` — capability injection + dedup | ✅ |
+| `/v1/responses` | `controller/bg_responses.go` — sync/async/stream | ✅ |
+| `/v1/tasks/{id}` | `GET /v1/bg/responses/:id` (equivalent) | ✅ |
+| API Key | Existing token system reused | ✅ |
+| Provider adapter | `ProviderAdapter` interface + OpenAI native + 10 legacy bridge | ✅ |
+| Routing strategy | 1:N registry + fallback loop | ✅ |
+| usage event | `bg_usage_records` table + normalization | ✅ |
+| ledger | `bg_ledger_entries` table + transactional writes | ✅ |
+| webhook / polling | `bg_webhook_events` outbox + `bg_poll_worker` | ✅ |
+| Basic rate limiting | Existing system reused | ✅ |
+| Basic audit logging | `bg_audit_logs` table + async insert | ✅ |
+| Tenant / Project fields | `org_id`/`project_id` activated on all tables | ✅ |
+| State machine | Response + Attempt dual state machine with CAS | ✅ |
+| Session capabilities | Session manager + action CAS lock + idle/expire worker | ✅ |
+| Billing pipeline | Usage → Billing → Ledger in single transaction | ✅ |
+
+### Capability Validation (§16.2)
+
+| Capability Type | Purpose | Status |
+|---|---|---|
+| **LLM** (sync + stream) | Validate sync and streaming | ✅ Verified with real OpenAI API |
+| **Image/Video** (async + poll) | Validate async + metering + callback/poll | ⚠️ Legacy bridge only, no callback inbound |
+| **Browser/Sandbox** (session) | Validate session capabilities | ⚠️ Mock adapter only |
+
+### Not Yet Completed
+
+#### P0 — Production Readiness
+
+| Work Item | Effort | Description |
+|---|---|---|
+| Callback inbound endpoint | 2-3d | `POST /v1/bg/callbacks/:provider` — provider push notifications |
+| PricingSnapshot immutability | 0.5d | Persist snapshot at invocation time, not at billing time |
+| Idempotency payload comparison | 0.5d | Same key + different payload → conflict error |
+| Async poll_url in response | 0.5d | Return `poll_url` field for async responses |
+
+#### P1 — MVP Completeness
+
+| Work Item | Effort | Description |
+|---|---|---|
+| Usage query API | 1d | `GET /v1/bg/usage` with org/time/model filters |
+| Usage/Billing state machine | 1-2d | Add estimated/voided/refunded states |
+| Poll backoff strategy | 0.5d | Exponential backoff based on attempt state |
+| Weighted routing | 0.5d | Random selection by weight (registry has field, logic missing) |
+| DTO field completion | 0.5d | OutputItem.Role, Error.Type/Param, async poll_url |
+| BgCapability seed data | 0.5d | Populate entries for LLM/Video/Browser capabilities |
+
+#### P2 — Platform Capabilities
+
+| Work Item | Effort | Description |
+|---|---|---|
+| Browser/Sandbox native adapter | 3-5d | Real session-mode adapter (Playwright, Docker) |
+| Async native adapter | 2-3d | Real async adapter (video processing provider) |
+| BYO billing logic | 1-2d | Platform fee vs provider cost split |
+| Pre-authorization | 2d | Freeze estimated amount, settle on completion |
+| Webhook HMAC signatures | 1d | `Signature` field already reserved |
+| Circuit breaker | 1-2d | Auto-degrade on provider failure threshold |
+
+#### P3 — Second Phase (§17)
+
+| Work Item | Description |
+|---|---|
+| Capability → Tool projection | Auto-generate LLM-callable tools from capability schemas |
+| Multi-tenant management API + UI | Organization/Project CRUD |
+| Capability Policy | Per-org/project/key allow/deny rules |
+| Routing Policy configuration | Per-tenant custom routing strategies |
+| Marketplace | Third-party provider self-service onboarding |
+| Frontend Dashboard | Usage/billing/capability management UI |
+| Complex pricing | Tiered, subscription + overage, credit system |
+
+### Completion Summary
+
+| Dimension | Progress | Notes |
+|---|---|---|
+| Core engine | 95% | State machine, orchestrator, billing pipeline |
+| API protocol | 80% | Missing management APIs (usage/capabilities/providers) |
+| Provider adapters | 70% | Only LLM has native adapter |
+| Multi-tenant governance | 30% | Fields active, management logic/UI missing |
+| Routing & scheduling | 50% | Basic fallback, no scoring/circuit-breaker |
+| Billing completeness | 60% | Basic pipeline, no pre-auth/refund/BYO/tiered |
+| MVP capability validation | 50% | Only LLM verified end-to-end with real provider |

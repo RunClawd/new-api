@@ -94,4 +94,10 @@ func RegisterNativeAdapters() {
 		common.SysLog(fmt.Sprintf("bg_init: registered native adapter openai_native_ch%d", ch.Id))
 	}
 	common.SysLog(fmt.Sprintf("bg_init: total native adapters registered: %d", count))
+
+	if common.DebugEnabled {
+		sandboxAdapter := &adapters.DummySandboxAdapter{NameID: "dev_sandbox"}
+		basegate.RegisterAdapter(sandboxAdapter)
+		common.SysLog("bg_init: registered dev sandbox adapter")
+	}
 }

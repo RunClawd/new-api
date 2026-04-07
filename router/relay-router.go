@@ -66,6 +66,16 @@ func SetRelayRouter(router *gin.Engine) {
 	{
 		playgroundRouter.POST("/chat/completions", controller.Playground)
 	}
+	bgCallbackRouter := router.Group("/v1/bg/callbacks")
+	bgCallbackRouter.Use(middleware.RouteTag("relay"))
+	{
+		// TODO(hardening): Add per-IP or per-response_id rate limiting here.
+		// ApplyProviderEvent is idempotent on terminal states, so repeated POSTs are safe
+		// but still wasteful. A simple token-bucket middleware (e.g. middleware.ModelRequestRateLimit
+		// or a dedicated bg-callback limiter) would mitigate spam from guessed response IDs.
+		bgCallbackRouter.POST("/:response_id", controller.InboundProviderCallback)
+	}
+
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())
@@ -106,6 +116,7 @@ func SetRelayRouter(router *gin.Engine) {
 		})
 
 		// BaseGate capability routes
+		httpRouter.GET("/bg/usage", controller.GetBgUsage)
 		httpRouter.POST("/bg/responses", controller.PostResponses)
 		httpRouter.GET("/bg/responses/:id", controller.GetResponseByID)
 		httpRouter.POST("/bg/responses/:id/cancel", controller.CancelResponseByID)

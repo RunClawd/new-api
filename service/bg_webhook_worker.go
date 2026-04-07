@@ -2,6 +2,9 @@ package service
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"time"
@@ -70,19 +73,45 @@ func (w *BgWebhookWorker) ScanAndDispatch() {
 		return
 	}
 
+	// Cache webhook secrets per OrgID to avoid N+1 DB queries within a batch.
+	// NOTE: OrgID maps to user ID in the current single-user-per-org identity model.
+	// When real organization tables exist this should query org settings instead.
+	secretCache := make(map[int]string)
+
 	for _, event := range events {
-		w.dispatch(event)
+		secret := resolveWebhookSecret(event.OrgID, secretCache)
+		w.dispatch(event, secret)
 	}
 }
 
-func (w *BgWebhookWorker) dispatch(event model.BgWebhookEvent) {
+// resolveWebhookSecret looks up the webhook secret for a given orgID (currently == userID),
+// caching the result in secretCache to prevent duplicate DB reads within one ScanAndDispatch cycle.
+func resolveWebhookSecret(orgID int, cache map[int]string) string {
+	if s, ok := cache[orgID]; ok {
+		return s
+	}
+	// OrgID == UserID in the current identity model (single-user-per-org).
+	user, err := model.GetUserById(orgID, false)
+	if err != nil || user == nil {
+		cache[orgID] = ""
+		return ""
+	}
+	secret := user.GetSetting().WebhookSecret
+	if secret == "" {
+		common.SysLog(fmt.Sprintf("webhook_worker: org %d has no webhook_secret configured — sending unsigned", orgID))
+	}
+	cache[orgID] = secret
+	return secret
+}
+
+func (w *BgWebhookWorker) dispatch(event model.BgWebhookEvent, webhookSecret string) {
 	// 1. Lock the event as delivering
 	event.DeliveryStatus = model.WebhookStatusDelivering
 	if err := model.DB.Save(&event).Error; err != nil {
 		return // Someone else picked it up or DB error
 	}
 
-	// 2. Resolve Webhook URL (First check BgResponse, then BgSession fallback if needed)
+	// 2. Resolve Webhook URL (BgResponse first, BgSession fallback)
 	var webhookURL string
 	if event.ResponseID != "" {
 		if resp, err := model.GetBgResponseByResponseID(event.ResponseID); err == nil && resp != nil {
@@ -96,18 +125,24 @@ func (w *BgWebhookWorker) dispatch(event model.BgWebhookEvent) {
 	}
 
 	if webhookURL == "" {
-		// Cannot deliver without URL. Mark dead.
 		event.DeliveryStatus = model.WebhookStatusDead
 		_ = model.DB.Save(&event)
 		common.SysError(fmt.Sprintf("webhook_worker: event %s has no URL to dispatch to", event.EventID))
 		return
 	}
 
-	// 3. Dispatch HTTP Post
+	// 3. Build and sign the HTTP request
 	req, err := http.NewRequest(http.MethodPost, webhookURL, bytes.NewBuffer([]byte(event.PayloadJSON)))
 	if err == nil {
 		req.Header.Set("Content-Type", "application/json")
-		// Phase 5: HMAC signature would be injected here
+
+		// Attach HMAC signature if a secret is configured for this org
+		if webhookSecret != "" {
+			mac := hmac.New(sha256.New, []byte(webhookSecret))
+			mac.Write([]byte(event.PayloadJSON))
+			req.Header.Set("X-BaseGate-Signature256", hex.EncodeToString(mac.Sum(nil)))
+		}
+
 		var resp *http.Response
 		resp, err = w.client.Do(req)
 		if err == nil {
@@ -122,18 +157,18 @@ func (w *BgWebhookWorker) dispatch(event model.BgWebhookEvent) {
 		}
 	}
 
-	// 4. Handle Failure & Retries
+	// 4. Handle failure and schedule retry
 	common.SysError(fmt.Sprintf("webhook_worker: delivery failed for event %s: %v", event.EventID, err))
-	
+
 	event.RetryCount++
 	if event.RetryCount > w.config.MaxRetries {
 		event.DeliveryStatus = model.WebhookStatusDead
 	} else {
 		event.DeliveryStatus = model.WebhookStatusRetrying
-		// Exponential backoff: 30s, 60s, 120s...
+		// Exponential backoff: 30s, 60s, 120s…
 		backoff := 15 * (1 << event.RetryCount)
 		event.NextRetryAt = time.Now().Unix() + int64(backoff)
 	}
-	
+
 	_ = model.DB.Save(&event)
 }

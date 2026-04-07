@@ -16,10 +16,10 @@ type BgUsageRecord struct {
 	ID                 int64         `json:"id" gorm:"primaryKey;autoIncrement"`
 	UsageID            string        `json:"usage_id" gorm:"type:varchar(64);uniqueIndex;not null"`
 	ResponseID         string        `json:"response_id" gorm:"type:varchar(64);index;not null"`
-	OrgID              int           `json:"org_id" gorm:"index;not null;default:0"`
+	OrgID              int           `json:"org_id" gorm:"index;index:idx_usage_aggr,priority:1;not null;default:0"`
 	ProjectID          int           `json:"project_id" gorm:"not null;default:0"`
 	Provider           string        `json:"provider" gorm:"type:varchar(50)"`
-	Model              string        `json:"model" gorm:"type:varchar(191)"`
+	Model              string        `json:"model" gorm:"type:varchar(191);index:idx_usage_aggr,priority:2"`
 	BillableUnits      float64       `json:"billable_units" gorm:"type:decimal(20,6);default:0"`
 	BillableUnit       string        `json:"billable_unit" gorm:"type:varchar(20)"`
 	InputUnits         float64       `json:"input_units" gorm:"type:decimal(20,6);default:0"`
@@ -28,7 +28,7 @@ type BgUsageRecord struct {
 	CanonicalUsageJSON string        `json:"canonical_usage_json" gorm:"type:text"`
 	Status             BgUsageStatus `json:"status" gorm:"type:varchar(20);not null;default:'pending'"`
 	Version            int           `json:"version" gorm:"not null;default:1"`
-	CreatedAt          int64         `json:"created_at" gorm:"autoCreateTime"`
+	CreatedAt          int64         `json:"created_at" gorm:"autoCreateTime;index:idx_usage_aggr,priority:3"`
 }
 
 func (BgUsageRecord) TableName() string {

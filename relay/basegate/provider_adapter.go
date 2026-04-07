@@ -2,6 +2,7 @@ package basegate
 
 import (
 	"fmt"
+	"net/http"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
@@ -24,6 +25,12 @@ type SessionCapableAdapter interface {
 	ExecuteAction(providerSessionID string, action *SessionActionRequest) (*SessionActionResult, error)
 	CloseSession(providerSessionID string) (*SessionCloseResult, error)
 	GetSessionStatus(providerSessionID string) (*SessionStatusResult, error)
+}
+
+// CallbackCapableAdapter extends ProviderAdapter to receive async callbacks from external webhook POSTs.
+type CallbackCapableAdapter interface {
+	ProviderAdapter
+	ParseCallback(req *http.Request) (*relaycommon.AdapterResult, error)
 }
 
 type SessionActionRequest struct {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -139,6 +140,19 @@ func ApplyProviderEvent(responseID, attemptID string, event ProviderEvent) error
 		if event.PollAfterMs%1000 > 0 {
 			attempt.PollAfterAt++ // round up
 		}
+	} else {
+		// Default exponential backoff with jitter
+		base := 5
+		exponent := attempt.PollCount
+		if exponent > 6 {
+			exponent = 6
+		}
+		backoff := base * (1 << exponent)
+		if backoff > 300 {
+			backoff = 300 // Cap at 5 minutes
+		}
+		jitter := rand.Int63n(int64(backoff)/4 + 1)
+		attempt.PollAfterAt = time.Now().Unix() + int64(backoff) + jitter
 	}
 	attempt.PollCount++
 	attempt.LastPollAt = time.Now().Unix()
