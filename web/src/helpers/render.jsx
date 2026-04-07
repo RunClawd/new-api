@@ -75,6 +75,9 @@ import {
   Package,
   Server,
   CalendarClock,
+  Activity,
+  Cpu,
+  ScrollText,
 } from 'lucide-react';
 import {
   SiAtlassian,
@@ -147,6 +150,12 @@ export function getLucideIcon(key, selected = false) {
       return <CalendarClock {...commonProps} color={iconColor} />;
     case 'setting':
       return <Settings {...commonProps} color={iconColor} />;
+    case 'bgUsage':
+      return <Activity {...commonProps} color={iconColor} />;
+    case 'bgResponses':
+      return <ScrollText {...commonProps} color={iconColor} />;
+    case 'bgCapabilities':
+      return <Cpu {...commonProps} color={iconColor} />;
     default:
       return <CircleUser {...commonProps} color={iconColor} />;
   }

@@ -49,6 +49,9 @@ const routerMap = {
   deployment: '/console/deployment',
   playground: '/console/playground',
   personal: '/console/personal',
+  bgUsage: '/console/bg-usage',
+  bgResponses: '/console/bg-responses',
+  bgCapabilities: '/console/bg-capabilities',
 };
 
 const SiderBar = ({ onNavigate = () => {} }) => {
@@ -188,6 +191,25 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         itemKey: 'setting',
         to: '/setting',
         className: isRoot() ? '' : 'tableHiddle',
+      },
+      // BaseGate Admin entries
+      {
+        text: t('BaseGate 用量'),
+        itemKey: 'bgUsage',
+        to: '/bg-usage',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('BaseGate 请求'),
+        itemKey: 'bgResponses',
+        to: '/bg-responses',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('BaseGate 能力'),
+        itemKey: 'bgCapabilities',
+        to: '/bg-capabilities',
+        className: isAdmin() ? '' : 'tableHiddle',
       },
     ];
 

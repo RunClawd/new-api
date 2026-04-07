@@ -49,6 +49,9 @@ import OAuth2Callback from './components/auth/OAuth2Callback';
 import PersonalSetting from './components/settings/PersonalSetting';
 import Setup from './pages/Setup';
 import SetupCheck from './components/layout/SetupCheck';
+import BgUsagePage from './pages/BgUsage';
+import BgResponsesPage from './pages/BgResponses';
+import BgCapabilitiesPage from './pages/BgCapabilities';
 
 const Home = lazy(() => import('./pages/Home'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -375,6 +378,30 @@ function App() {
                 <Chat2Link />
               </Suspense>
             </PrivateRoute>
+          }
+        />
+        <Route
+          path='/console/bg-usage'
+          element={
+            <AdminRoute>
+              <BgUsagePage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/bg-responses'
+          element={
+            <AdminRoute>
+              <BgResponsesPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/bg-capabilities'
+          element={
+            <AdminRoute>
+              <BgCapabilitiesPage />
+            </AdminRoute>
           }
         />
         <Route path='*' element={<NotFound />} />

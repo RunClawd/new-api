@@ -246,6 +246,17 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.POST("/upstream_updates/detect", controller.DetectChannelUpstreamModelUpdates)
 			channelRoute.POST("/upstream_updates/detect_all", controller.DetectAllChannelUpstreamModelUpdates)
 		}
+		bgAdminRoute := apiRouter.Group("/bg")
+		bgAdminRoute.Use(middleware.AdminAuth())
+		{
+			bgAdminRoute.GET("/responses", controller.AdminListBgResponses)
+			bgAdminRoute.GET("/responses/:id", controller.AdminGetBgResponse)
+			bgAdminRoute.GET("/sessions", controller.AdminListBgSessions)
+			bgAdminRoute.GET("/sessions/:id", controller.AdminGetBgSession)
+			bgAdminRoute.GET("/capabilities", controller.AdminListBgCapabilities)
+			bgAdminRoute.GET("/usage/stats", controller.AdminGetBgUsageStats)
+		}
+
 		tokenRoute := apiRouter.Group("/token")
 		tokenRoute.Use(middleware.UserAuth())
 		{
