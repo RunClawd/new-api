@@ -181,6 +181,11 @@ func GenerateUsageID() string {
 	return "usg_" + generateNanoID(20)
 }
 
+// GenerateActionID generates a unique session action ID.
+func GenerateActionID() string {
+	return "act_" + generateNanoID(20)
+}
+
 // GenerateBillingID generates a unique billing record ID.
 func GenerateBillingID() string {
 	return "bill_" + generateNanoID(20)

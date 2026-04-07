@@ -82,10 +82,11 @@ type BGSessionOutput struct {
 	ExpiresAt  int64  `json:"expires_at,omitempty"`
 }
 
-// BGSessionRequest is the API-facing request for POST /v1/sessions/:id/actions.
+// BGSessionActionRequest is the API-facing request for POST /v1/sessions/:id/actions.
 type BGSessionActionRequest struct {
 	Action           string                 `json:"action" binding:"required"`
 	Input            interface{}            `json:"input"`
+	IdempotencyKey   string                 `json:"idempotency_key,omitempty"` // Idempotency key for action retry
 	ExecutionOptions *BGExecutionOptions    `json:"execution_options,omitempty"`
 }
 

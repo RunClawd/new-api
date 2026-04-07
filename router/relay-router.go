@@ -110,6 +110,12 @@ func SetRelayRouter(router *gin.Engine) {
 		httpRouter.GET("/bg/responses/:id", controller.GetResponseByID)
 		httpRouter.POST("/bg/responses/:id/cancel", controller.CancelResponseByID)
 
+		// BaseGate Session routes
+		httpRouter.POST("/bg/sessions", controller.PostSessions)
+		httpRouter.GET("/bg/sessions/:id", controller.GetSessionByID)
+		httpRouter.POST("/bg/sessions/:id/action", controller.PostSessionAction)
+		httpRouter.POST("/bg/sessions/:id/close", controller.CloseSessionByID)
+
 		// image related routes
 		httpRouter.POST("/edits", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIImage)

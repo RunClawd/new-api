@@ -47,6 +47,8 @@ func setupBgControllerTestDB(t *testing.T) *gorm.DB {
 		&model.BgUsageRecord{},
 		&model.BgBillingRecord{},
 		&model.BgLedgerEntry{},
+		&model.BgSession{},
+		&model.BgSessionAction{},
 	); err != nil {
 		t.Fatalf("migration failed: %v", err)
 	}

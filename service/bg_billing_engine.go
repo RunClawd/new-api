@@ -158,3 +158,72 @@ func FinalizeBilling(responseID string, orgID int, rawUsage *relaycommon.Provide
 
 	return nil
 }
+
+// FinalizeSessionBilling is the billing pipeline for closed sessions.
+func FinalizeSessionBilling(session *model.BgSession) error {
+	// 1. Aggregate action usage
+	actions, err := model.GetBgSessionActionsBySessionID(session.SessionID)
+	if err != nil {
+		return fmt.Errorf("finalize session billing: failed to list actions: %w", err)
+	}
+
+	actionCount := 0
+	for _, action := range actions {
+		if action.UsageJSON != "" {
+			actionCount++ // We can parse precise usage later if needed
+		}
+	}
+
+	// 2. Calculate session duration in minutes
+	var totalMinutes float64
+	if session.ClosedAt > 0 && session.CreatedAt > 0 {
+		totalMinutes = float64(session.ClosedAt-session.CreatedAt) / 60.0
+	}
+
+	// 3. Create canonical usage record
+	rawUsageStr := fmt.Sprintf(`{"session_minutes":%f,"action_count":%d}`, totalMinutes, len(actions))
+	usageRecord := &model.BgUsageRecord{
+		UsageID:       relaycommon.GenerateUsageID(),
+		ResponseID:    session.SessionID, // We bill by session ID
+		OrgID:         session.OrgID,
+		ProjectID:     session.ProjectID,
+		Model:         session.Model,
+		Provider:      session.AdapterName, // Close enough for session
+		BillableUnits: totalMinutes,
+		BillableUnit:  "minute",
+		InputUnits:    float64(actionCount), // Track action count as input units
+		RawUsageJSON:  rawUsageStr,
+		CreatedAt:     time.Now().Unix(),
+	}
+	
+	if err := usageRecord.Insert(); err != nil {
+		common.SysError(fmt.Sprintf("session_billing: failed to persist usage: %v", err))
+	}
+
+	// 4. Calculate billing (Mock pricing for now, phase 4 handles complex lookup)
+	pricing := &relaycommon.PricingSnapshot{
+		BillingMode:  "metered",
+		BillableUnit: "minute",
+		UnitPrice:    0.0, // Default to zero unless overriden by model map
+		Currency:     "usd",
+	}
+
+	canonicalUsage := &relaycommon.CanonicalUsage{
+		BillableUnits: totalMinutes,
+		BillableUnit:  "minute",
+	}
+
+	billingRecord, _ := CalculateBilling(session.SessionID, canonicalUsage, pricing)
+
+	// 5. Ledger Entry
+	if billingRecord != nil && billingRecord.Amount > 0 {
+		_, _ = PostLedgerEntry(session.OrgID, billingRecord, "debit")
+		common.SysLog(fmt.Sprintf("session_billing: finalized %s — %.2f %s (%.2f mins)",
+			session.SessionID, billingRecord.Amount, billingRecord.Currency, totalMinutes))
+	} else {
+		common.SysLog(fmt.Sprintf("session_billing: finalized %s — 0.00 usd (%.2f mins), %d actions",
+			session.SessionID, totalMinutes, actionCount))
+	}
+
+	return nil
+}
