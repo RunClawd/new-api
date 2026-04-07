@@ -242,8 +242,25 @@ func ApplyProviderEvent(responseID, attemptID string, event ProviderEvent) error
 		billingStatus := "none"
 		if resp.Status == model.BgResponseStatusSucceeded && event.RawUsage != nil {
 			rawUsage := eventRawUsageToProviderUsage(event.RawUsage)
-			pricing := LookupPricing(resp.Model, resp.BillingMode)
-			if err := FinalizeBilling(responseID, resp.OrgID, rawUsage, pricing); err != nil {
+
+			// Resolve pricing: prefer the snapshot frozen at invocation time.
+			// Fallback to live LookupPricing for in-flight responses created before this
+			// feature was deployed (PricingSnapshotJSON will be empty).
+			var pricing *relaycommon.PricingSnapshot
+			if resp.PricingSnapshotJSON != "" {
+				var snap relaycommon.PricingSnapshot
+				if err := common.UnmarshalJsonStr(resp.PricingSnapshotJSON, &snap); err == nil {
+					pricing = &snap
+				}
+			}
+			if pricing == nil {
+				pricing = LookupPricing(resp.Model, resp.BillingMode)
+			}
+
+			// Resolve provider name from the active attempt's adapter
+			provider := attempt.AdapterName
+
+			if err := FinalizeBilling(responseID, resp.OrgID, resp.ProjectID, resp.Model, provider, rawUsage, pricing); err != nil {
 				common.SysError(fmt.Sprintf("billing failed for %s: %v", responseID, err))
 				billingStatus = "failed"
 			} else {

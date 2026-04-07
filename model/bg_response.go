@@ -81,8 +81,11 @@ type BgResponse struct {
 	UpdatedAt       int64            `json:"updated_at" gorm:"autoUpdateTime"`
 	FinalizedAt     int64            `json:"finalized_at" gorm:"default:0"`
 	ExpiresAt       int64            `json:"expires_at" gorm:"default:0"`
-	BillingStatus   string           `json:"billing_status" gorm:"type:varchar(20);default:'none'"` // none | completed | failed
-	WebhookURL      string           `json:"webhook_url" gorm:"type:text"`
+	BillingStatus        string           `json:"billing_status" gorm:"type:varchar(20);default:'none'"` // none | completed | failed
+	WebhookURL           string           `json:"webhook_url" gorm:"type:text"`
+	// PricingSnapshotJSON holds the pricing frozen at invocation time (immutable).
+	// Used by the state machine to avoid price-drift on long-running async/session responses.
+	PricingSnapshotJSON  string           `json:"pricing_snapshot_json" gorm:"type:text"`
 }
 
 func (BgResponse) TableName() string {

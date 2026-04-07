@@ -373,6 +373,15 @@ func migrateDBFast() error {
 		}
 	}
 	common.SysLog("database migrated")
+
+	// Seed BaseGate capability definitions (idempotent upsert — safe to run on every startup)
+	if err := SeedBgCapabilities(); err != nil {
+		common.SysError("failed to seed bg capabilities: " + err.Error())
+		// Non-fatal: capabilities still work via adapter registry; log and continue
+	} else {
+		common.SysLog("bg capabilities seeded")
+	}
+
 	return nil
 }
 

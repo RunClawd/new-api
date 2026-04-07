@@ -24,22 +24,26 @@ type BGResponseFormat struct {
 
 // BaseGateResponse is the API-facing response body.
 type BaseGateResponse struct {
-	ID        string              `json:"id"`
-	Object    string              `json:"object"` // "response"
-	CreatedAt int64               `json:"created_at"`
-	Status    string              `json:"status"`
-	Model     string              `json:"model"`
-	Output    []BGOutputItem      `json:"output,omitempty"`
-	Usage     *BGUsage            `json:"usage,omitempty"`
-	Pricing   *BGPricing          `json:"pricing,omitempty"`
-	Error     *BGError            `json:"error,omitempty"`
-	Meta      *BGMeta             `json:"meta,omitempty"`
+	ID        string         `json:"id"`
+	Object    string         `json:"object"` // "response"
+	CreatedAt int64          `json:"created_at"`
+	Status    string         `json:"status"`
+	Model     string         `json:"model"`
+	Output    []BGOutputItem `json:"output,omitempty"`
+	Usage     *BGUsage       `json:"usage,omitempty"`
+	Pricing   *BGPricing     `json:"pricing,omitempty"`
+	Error     *BGError       `json:"error,omitempty"`
+	Meta      *BGMeta        `json:"meta,omitempty"`
+	// PollURL is the relative URL to poll for async responses.
+	// Only present when status is non-terminal (accepted, queued, running).
+	PollURL string `json:"poll_url,omitempty"`
 }
 
 // BGOutputItem is a single element in the response output array.
 type BGOutputItem struct {
-	Type    string      `json:"type"`    // text | image | video | audio | file | session | tool_call
+	Type    string      `json:"type"`             // text | image | video | audio | file | session | tool_call
 	Content interface{} `json:"content"`
+	Role    string      `json:"role,omitempty"` // assistant | system | tool
 }
 
 // BGUsage represents normalized usage in the API response.
@@ -61,8 +65,12 @@ type BGPricing struct {
 
 // BGError represents an error in the API response.
 type BGError struct {
+	// Type is an OpenAI-compatible discriminator (e.g. invalid_request_error, api_error, rate_limit_error).
+	Type    string `json:"type,omitempty"`
+	// Code is a BaseGate-internal error code (e.g. provider_unavailable, billing_failed, adapter_timeout).
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Param   string `json:"param,omitempty"` // OpenAI-compatible parameter name that caused the error
 	Detail  string `json:"detail,omitempty"`
 }
 

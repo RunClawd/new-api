@@ -127,11 +127,20 @@ func PostLedgerEntry(
 }
 
 // FinalizeBilling is the full billing pipeline for a completed response:
-//   Usage → Billing → Ledger (all in one transaction)
+//
+//	Usage → Billing → Ledger (all in one transaction)
 //
 // Called by the state machine when a response reaches a terminal state.
 // If any step fails, the entire transaction rolls back — no partial writes.
-func FinalizeBilling(responseID string, orgID int, rawUsage *relaycommon.ProviderUsage, pricing *relaycommon.PricingSnapshot) error {
+// orgID, projectID, model, provider are populated on every record so the
+// Usage API (WHERE org_id = ?) returns rows from this billing path.
+func FinalizeBilling(
+	responseID string,
+	orgID, projectID int,
+	modelName, provider string,
+	rawUsage *relaycommon.ProviderUsage,
+	pricing *relaycommon.PricingSnapshot,
+) error {
 	if rawUsage == nil {
 		return nil
 	}
@@ -142,6 +151,10 @@ func FinalizeBilling(responseID string, orgID int, rawUsage *relaycommon.Provide
 	usageRecord := &model.BgUsageRecord{
 		UsageID:       relaycommon.GenerateUsageID(),
 		ResponseID:    responseID,
+		OrgID:         orgID,
+		ProjectID:     projectID,
+		Model:         modelName,
+		Provider:      provider,
 		BillableUnits: canonicalUsage.BillableUnits,
 		BillableUnit:  canonicalUsage.BillableUnit,
 		InputUnits:    canonicalUsage.InputUnits,
@@ -168,6 +181,10 @@ func FinalizeBilling(responseID string, orgID int, rawUsage *relaycommon.Provide
 		billingRecord := &model.BgBillingRecord{
 			BillingID:    relaycommon.GenerateBillingID(),
 			ResponseID:   responseID,
+			OrgID:        orgID,
+			ProjectID:    projectID,
+			Model:        modelName,
+			Provider:     provider,
 			BillingMode:  pricing.BillingMode,
 			BillableUnit: canonicalUsage.BillableUnit,
 			Quantity:     canonicalUsage.BillableUnits,

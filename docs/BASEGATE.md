@@ -275,6 +275,8 @@ go test -race ./model/... ./service/... -count=1
 | 4 | `58a2bb2a` | Webhook outbox, SSE streaming, model discovery |
 | 5 | `247acd77` `1f447865` `44138b6a` | Billing wiring, OpenAI adapter, routing, multi-tenant, audit |
 | docs | `0bd5ac8c` | Architecture document, project structure refresh |
+| 6 | *Pending* | Inbound callbacks, Usage API, HMAC webhooks, sandbox registry |
+| 7 | *Pending* | Production Hardening (immutable pricing, idempotency, weighted routing, E2E tests) |
 
 ## MVP Progress (Project Definition §16.3)
 
@@ -297,6 +299,13 @@ go test -race ./model/... ./service/... -count=1
 | State machine | Response + Attempt dual state machine with CAS | ✅ |
 | Session capabilities | Session manager + action CAS lock + idle/expire worker | ✅ |
 | Billing pipeline | Usage → Billing → Ledger in single transaction | ✅ |
+| Callback inbound endpoint | `POST /v1/bg/callbacks/:response_id` + adapter validation | ✅ |
+| PricingSnapshot | Immutability at invocation time to prevent async drift | ✅ |
+| Idempotency payload | Deep equality conflict detection (`ErrIdempotencyConflict`) | ✅ |
+| Async response metadata | `poll_url` added to `BaseGateResponse` for non-terminal states | ✅ |
+| Usage query API | `GET /v1/bg/usage` with org scoping and date grouping | ✅ |
+| Weighted routing | Router fallback dynamically follows `CapabilityBinding` weights | ✅ |
+| Webhook Security | `X-BaseGate-Signature256` HMAC signing logic | ✅ |
 
 ### Capability Validation (§16.2)
 
@@ -312,21 +321,14 @@ go test -race ./model/... ./service/... -count=1
 
 | Work Item | Effort | Description |
 |---|---|---|
-| Callback inbound endpoint | 2-3d | `POST /v1/bg/callbacks/:provider` — provider push notifications |
-| PricingSnapshot immutability | 0.5d | Persist snapshot at invocation time, not at billing time |
-| Idempotency payload comparison | 0.5d | Same key + different payload → conflict error |
-| Async poll_url in response | 0.5d | Return `poll_url` field for async responses |
+| E2E Testing Coverage | 1d | Expand session/streaming controller tests |
 
 #### P1 — MVP Completeness
 
 | Work Item | Effort | Description |
 |---|---|---|
-| Usage query API | 1d | `GET /v1/bg/usage` with org/time/model filters |
 | Usage/Billing state machine | 1-2d | Add estimated/voided/refunded states |
 | Poll backoff strategy | 0.5d | Exponential backoff based on attempt state |
-| Weighted routing | 0.5d | Random selection by weight (registry has field, logic missing) |
-| DTO field completion | 0.5d | OutputItem.Role, Error.Type/Param, async poll_url |
-| BgCapability seed data | 0.5d | Populate entries for LLM/Video/Browser capabilities |
 
 #### P2 — Platform Capabilities
 
@@ -336,7 +338,6 @@ go test -race ./model/... ./service/... -count=1
 | Async native adapter | 2-3d | Real async adapter (video processing provider) |
 | BYO billing logic | 1-2d | Platform fee vs provider cost split |
 | Pre-authorization | 2d | Freeze estimated amount, settle on completion |
-| Webhook HMAC signatures | 1d | `Signature` field already reserved |
 | Circuit breaker | 1-2d | Auto-degrade on provider failure threshold |
 
 #### P3 — Second Phase (§17)
@@ -355,10 +356,10 @@ go test -race ./model/... ./service/... -count=1
 
 | Dimension | Progress | Notes |
 |---|---|---|
-| Core engine | 95% | State machine, orchestrator, billing pipeline |
-| API protocol | 80% | Missing management APIs (usage/capabilities/providers) |
+| Core engine | 98% | Idempotency, pricing immutability, and state machine finalized |
+| API protocol | 85% | Usage API implemented; missing management APIs (capabilities/providers) |
 | Provider adapters | 70% | Only LLM has native adapter |
-| Multi-tenant governance | 30% | Fields active, management logic/UI missing |
-| Routing & scheduling | 50% | Basic fallback, no scoring/circuit-breaker |
-| Billing completeness | 60% | Basic pipeline, no pre-auth/refund/BYO/tiered |
+| Multi-tenant governance | 35% | Foundational scoping implemented in usage/billing APIs |
+| Routing & scheduling | 75% | Weighted routing & basic fallback implemented, missing circuit-breaker |
+| Billing completeness | 70% | Cross-tenant scoping API fixed, no pre-auth/refund/BYO/tiered yet |
 | MVP capability validation | 50% | Only LLM verified end-to-end with real provider |

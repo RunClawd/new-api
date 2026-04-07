@@ -173,7 +173,7 @@ func TestFinalizeBilling_FullPipeline(t *testing.T) {
 		Currency:     "usd",
 	}
 
-	err := FinalizeBilling("resp_full_pipe", 42, rawUsage, pricing)
+	err := FinalizeBilling("resp_full_pipe", 42, 0, "bg.llm.chat.standard", "test-adapter", rawUsage, pricing)
 	require.NoError(t, err)
 
 	// Verify all 3 tables have records
@@ -188,6 +188,6 @@ func TestFinalizeBilling_FullPipeline(t *testing.T) {
 }
 
 func TestFinalizeBilling_NilUsage(t *testing.T) {
-	err := FinalizeBilling("resp_no_usage", 1, nil, nil)
+	err := FinalizeBilling("resp_no_usage", 1, 0, "", "", nil, nil)
 	assert.NoError(t, err) // no-op
 }

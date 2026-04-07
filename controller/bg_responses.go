@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -91,9 +92,16 @@ func PostResponses(c *gin.Context) {
 
 	if err != nil {
 		common.SysError("PostResponses error: " + err.Error())
-		c.JSON(http.StatusInternalServerError, gin.H{
+		statusCode := http.StatusInternalServerError
+		errCode := "internal_error"
+		if err == service.ErrIdempotencyConflict {
+			statusCode = http.StatusConflict
+			errCode = "idempotency_mismatch"
+		}
+		c.JSON(statusCode, gin.H{
 			"error": gin.H{
-				"code":    "internal_error",
+				"code":    errCode,
+				"type":    "invalid_request_error",
 				"message": err.Error(),
 			},
 		})
@@ -102,7 +110,7 @@ func PostResponses(c *gin.Context) {
 
 	// Set appropriate HTTP status
 	statusCode := http.StatusOK
-	if resp.Status == "queued" || resp.Status == "accepted" {
+	if !model.BgResponseStatus(resp.Status).IsTerminal() {
 		statusCode = http.StatusAccepted
 	}
 

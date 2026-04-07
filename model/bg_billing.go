@@ -58,6 +58,8 @@ type BgBillingRecord struct {
 	ResponseID          string          `json:"response_id" gorm:"type:varchar(64);index;not null"`
 	OrgID               int             `json:"org_id" gorm:"index;not null;default:0"`
 	ProjectID           int             `json:"project_id" gorm:"not null;default:0"`
+	Model               string          `json:"model" gorm:"type:varchar(191)"`
+	Provider            string          `json:"provider" gorm:"type:varchar(50)"`
 	BillingMode         string          `json:"billing_mode" gorm:"type:varchar(10);default:'hosted'"`
 	BillableUnit        string          `json:"billable_unit" gorm:"type:varchar(20)"`
 	Quantity            float64         `json:"quantity" gorm:"type:decimal(20,6);default:0"`

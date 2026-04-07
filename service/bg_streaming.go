@@ -46,6 +46,11 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 	inputJSON, _ := common.Marshal(req.Input)
 	bgResp.InputJSON = string(inputJSON)
 
+	// Freeze pricing snapshot at invocation time (same as Sync/Async dispatch paths)
+	pricingSnapshot := LookupPricing(req.Model, req.BillingContext.BillingMode)
+	snapshotJSON, _ := common.Marshal(pricingSnapshot)
+	bgResp.PricingSnapshotJSON = string(snapshotJSON)
+
 	if err := bgResp.Insert(); err != nil {
 		return fmt.Errorf("failed to create response record: %w", err)
 	}

@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -11,15 +12,51 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
+// ErrIdempotencyConflict is returned when an idempotency key is reused with a different payload.
+var ErrIdempotencyConflict = fmt.Errorf("idempotency_conflict")
+
+// checkIdempotency looks up an existing response by idempotency key.
+// Returns (existing, nil) if found and payload matches.
+// Returns (nil, ErrIdempotencyConflict) if found but payload differs.
+// Returns (nil, nil) if not found (proceed normally).
+func checkIdempotency(orgID int, idempotencyKey string, currentInput interface{}) (*model.BgResponse, error) {
+	if idempotencyKey == "" {
+		return nil, nil
+	}
+	existing, err := model.GetBgResponseByIdempotencyKey(orgID, idempotencyKey)
+	if err != nil || existing == nil {
+		return nil, nil // not found — proceed
+	}
+
+	// Canonical deep-compare: marshal→unmarshal the current input, then DeepEqual.
+	// This avoids map key ordering non-determinism in byte-level comparison.
+	var existingInput interface{}
+	if existing.InputJSON != "" {
+		if err := common.UnmarshalJsonStr(existing.InputJSON, &existingInput); err != nil {
+			// Can't compare — treat as matching (conservative: don't reject)
+			return existing, nil
+		}
+	}
+
+	var currentNorm interface{}
+	currentBytes, _ := common.Marshal(currentInput)
+	_ = common.UnmarshalJsonStr(string(currentBytes), &currentNorm)
+
+	if !reflect.DeepEqual(existingInput, currentNorm) {
+		return nil, ErrIdempotencyConflict
+	}
+
+	return existing, nil
+}
+
 // DispatchSync handles synchronous capability requests (LLM chat, etc.).
-// Flow: lookup adapter → idempotency check → create response → invoke → finalize.
+// Flow: idempotency check → lookup adapter → create response (with pricing snapshot) → invoke → finalize.
 func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, error) {
 	// 1. Idempotency check
-	if req.IdempotencyKey != "" {
-		existing, err := model.GetBgResponseByIdempotencyKey(req.OrgID, req.IdempotencyKey)
-		if err == nil && existing != nil {
-			return buildResponseFromDB(existing)
-		}
+	if existing, err := checkIdempotency(req.OrgID, req.IdempotencyKey, req.Input); err != nil {
+		return nil, err // ErrIdempotencyConflict
+	} else if existing != nil {
+		return buildResponseFromDB(existing)
 	}
 
 	// 2. Lookup adapters
@@ -28,22 +65,27 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 		return nil, fmt.Errorf("no adapters found for model: %s", req.Model)
 	}
 
-	// 3. Create response record
+	// 3. Freeze pricing snapshot at invocation time
+	pricingSnapshot := LookupPricing(req.Model, req.BillingContext.BillingMode)
+	snapshotJSON, _ := common.Marshal(pricingSnapshot)
+
+	// 4. Create response record
 	now := time.Now().Unix()
 	bgResp := &model.BgResponse{
-		ResponseID:     req.ResponseID,
-		RequestID:      req.RequestID,
-		OrgID:          req.OrgID,
-		ProjectID:      req.ProjectID,
-		ApiKeyID:       req.ApiKeyID,
-		EndUserID:      req.EndUserID,
-		Model:          req.Model,
-		Status:         model.BgResponseStatusQueued,
-		StatusVersion:  1,
-		IdempotencyKey: req.IdempotencyKey,
-		BillingMode:    req.BillingContext.BillingMode,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ResponseID:          req.ResponseID,
+		RequestID:           req.RequestID,
+		OrgID:               req.OrgID,
+		ProjectID:           req.ProjectID,
+		ApiKeyID:            req.ApiKeyID,
+		EndUserID:           req.EndUserID,
+		Model:               req.Model,
+		Status:              model.BgResponseStatusQueued,
+		StatusVersion:       1,
+		IdempotencyKey:      req.IdempotencyKey,
+		BillingMode:         req.BillingContext.BillingMode,
+		PricingSnapshotJSON: string(snapshotJSON),
+		CreatedAt:           now,
+		UpdatedAt:           now,
 	}
 	if bgResp.BillingMode == "" {
 		bgResp.BillingMode = "hosted"
@@ -60,7 +102,7 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 		"mode":  req.ExecutionOptions.Mode,
 	})
 
-	// 4. Fallback loop for Sync Invocation
+	// 5. Fallback loop for Sync Invocation
 	for i, adapter := range adapters {
 		validation := adapter.Validate(req)
 		if validation != nil && !validation.Valid {
@@ -68,7 +110,6 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 			if i < len(adapters)-1 {
 				continue
 			}
-			// Only last adapter failure causes a hard failure if validation fails
 			return nil, fmt.Errorf("all adapters failed validation")
 		}
 
@@ -120,20 +161,19 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 		break
 	}
 
-	// 5. Build API response from DB
+	// 6. Build API response from DB
 	bgResp, _ = model.GetBgResponseByResponseID(req.ResponseID)
 	return buildResponseFromDB(bgResp)
 }
 
 // DispatchAsync handles async capability requests (video, audio, etc.).
-// Flow: create response → invoke → persist attempt with poll schedule → return queued.
+// Flow: idempotency check → create response (with pricing snapshot) → invoke → return queued.
 func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, error) {
 	// 1. Idempotency check
-	if req.IdempotencyKey != "" {
-		existing, err := model.GetBgResponseByIdempotencyKey(req.OrgID, req.IdempotencyKey)
-		if err == nil && existing != nil {
-			return buildResponseFromDB(existing)
-		}
+	if existing, err := checkIdempotency(req.OrgID, req.IdempotencyKey, req.Input); err != nil {
+		return nil, err // ErrIdempotencyConflict
+	} else if existing != nil {
+		return buildResponseFromDB(existing)
 	}
 
 	// 2. Lookup adapters
@@ -142,22 +182,27 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 		return nil, fmt.Errorf("no adapters found for model: %s", req.Model)
 	}
 
-	// 3. Create response record
+	// 3. Freeze pricing snapshot at invocation time
+	pricingSnapshot := LookupPricing(req.Model, req.BillingContext.BillingMode)
+	snapshotJSON, _ := common.Marshal(pricingSnapshot)
+
+	// 4. Create response record
 	now := time.Now().Unix()
 	bgResp := &model.BgResponse{
-		ResponseID:     req.ResponseID,
-		RequestID:      req.RequestID,
-		OrgID:          req.OrgID,
-		ProjectID:      req.ProjectID,
-		ApiKeyID:       req.ApiKeyID,
-		EndUserID:      req.EndUserID,
-		Model:          req.Model,
-		Status:         model.BgResponseStatusAccepted,
-		StatusVersion:  1,
-		IdempotencyKey: req.IdempotencyKey,
-		BillingMode:    req.BillingContext.BillingMode,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ResponseID:          req.ResponseID,
+		RequestID:           req.RequestID,
+		OrgID:               req.OrgID,
+		ProjectID:           req.ProjectID,
+		ApiKeyID:            req.ApiKeyID,
+		EndUserID:           req.EndUserID,
+		Model:               req.Model,
+		Status:              model.BgResponseStatusAccepted,
+		StatusVersion:       1,
+		IdempotencyKey:      req.IdempotencyKey,
+		BillingMode:         req.BillingContext.BillingMode,
+		PricingSnapshotJSON: string(snapshotJSON),
+		CreatedAt:           now,
+		UpdatedAt:           now,
 	}
 	if bgResp.BillingMode == "" {
 		bgResp.BillingMode = "hosted"
@@ -174,7 +219,7 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 		"mode":  req.ExecutionOptions.Mode,
 	})
 
-	// 4. Fallback loop for Async Invocation
+	// 5. Fallback loop for Async Invocation
 	for i, adapter := range adapters {
 		validation := adapter.Validate(req)
 		if validation != nil && !validation.Valid {
@@ -228,13 +273,12 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 			break
 		}
 
-		// Success or un-retryable failure, apply initial state
 		event := adapterResultToEvent(result)
 		_ = ApplyProviderEvent(req.ResponseID, attemptID, event)
 		break
 	}
 
-	// 5. Reload and return
+	// 6. Reload and return
 	bgResp, _ = model.GetBgResponseByResponseID(req.ResponseID)
 	return buildResponseFromDB(bgResp)
 }
@@ -307,10 +351,40 @@ func adapterResultToEvent(result *relaycommon.AdapterResult) ProviderEvent {
 		}
 	}
 
+	// Map RawUsage directly from struct fields to avoid marshal→unmarshal round-trip.
+	// The state machine reads event.RawUsage to drive FinalizeBilling.
+	if u := result.RawUsage; u != nil {
+		rawMap := map[string]interface{}{}
+		if u.PromptTokens > 0 {
+			rawMap["prompt_tokens"] = u.PromptTokens
+		}
+		if u.CompletionTokens > 0 {
+			rawMap["completion_tokens"] = u.CompletionTokens
+		}
+		if u.TotalTokens > 0 {
+			rawMap["total_tokens"] = u.TotalTokens
+		}
+		if u.DurationSec > 0 {
+			rawMap["duration_sec"] = u.DurationSec
+		}
+		if u.SessionMinutes > 0 {
+			rawMap["session_minutes"] = u.SessionMinutes
+		}
+		if u.Actions > 0 {
+			rawMap["actions"] = u.Actions
+		}
+		if u.BillableUnits > 0 {
+			rawMap["billable_units"] = u.BillableUnits
+			rawMap["billable_unit"] = u.BillableUnit
+		}
+		event.RawUsage = rawMap
+	}
+
 	return event
 }
 
 // buildResponseFromDB constructs an API response from a DB record.
+// Step 3.2: PollURL is populated for non-terminal statuses only.
 func buildResponseFromDB(bgResp *model.BgResponse) (*dto.BaseGateResponse, error) {
 	// Reload from DB for latest state
 	latest, err := model.GetBgResponseByResponseID(bgResp.ResponseID)
@@ -324,6 +398,11 @@ func buildResponseFromDB(bgResp *model.BgResponse) (*dto.BaseGateResponse, error
 		CreatedAt: bgResp.CreatedAt,
 		Status:    string(bgResp.Status),
 		Model:     bgResp.Model,
+	}
+
+	// Populate poll_url for non-terminal responses (async polling)
+	if !bgResp.Status.IsTerminal() {
+		resp.PollURL = "/v1/bg/responses/" + bgResp.ResponseID
 	}
 
 	// Parse output
