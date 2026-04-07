@@ -121,6 +121,9 @@ func main() {
 		return a
 	}
 
+	// BaseGate: register legacy task adaptors into unified /v1/bg/responses pipeline
+	relay.RegisterAllLegacyTaskAdaptors()
+
 	// Channel upstream model update check task
 	controller.StartChannelUpstreamModelUpdateTask()
 

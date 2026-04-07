@@ -105,6 +105,11 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatOpenAIResponsesCompaction)
 		})
 
+		// BaseGate capability routes
+		httpRouter.POST("/bg/responses", controller.PostResponses)
+		httpRouter.GET("/bg/responses/:id", controller.GetResponseByID)
+		httpRouter.POST("/bg/responses/:id/cancel", controller.CancelResponseByID)
+
 		// image related routes
 		httpRouter.POST("/edits", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIImage)

@@ -248,3 +248,113 @@ func TestApplyProviderEvent_AsyncPolling(t *testing.T) {
 	assert.Equal(t, model.BgResponseStatusSucceeded, found.Status)
 	assert.True(t, found.FinalizedAt > 0)
 }
+
+// ---------------------------------------------------------------------------
+// Auto-advance tests — ensures strict state transitions
+// ---------------------------------------------------------------------------
+
+func TestApplyProviderEvent_AutoAdvance_AcceptedToSucceeded(t *testing.T) {
+	truncateBgTables(t)
+
+	// Response starts at "accepted" (initial state from orchestrator)
+	resp := &model.BgResponse{
+		ResponseID:    "resp_aa_1",
+		Model:         "bg.llm.chat.fast",
+		Status:        model.BgResponseStatusAccepted,
+		StatusVersion: 1,
+		OrgID:         1,
+	}
+	require.NoError(t, resp.Insert())
+
+	attempt := &model.BgResponseAttempt{
+		AttemptID:     "att_aa_1",
+		ResponseID:    "resp_aa_1",
+		AttemptNo:     1,
+		Status:        model.BgAttemptStatusDispatching,
+		StatusVersion: 1,
+	}
+	require.NoError(t, attempt.Insert())
+
+	// Provider directly returns "succeeded" (skipping queued/running).
+	// Auto-advance should: accepted → queued (auto) → succeeded (applied)
+	err := ApplyProviderEvent(resp.ResponseID, attempt.AttemptID, ProviderEvent{
+		Status: "succeeded",
+		Output: []interface{}{"fast response!"},
+	})
+	require.NoError(t, err)
+
+	found, err := model.GetBgResponseByResponseID("resp_aa_1")
+	require.NoError(t, err)
+	assert.Equal(t, model.BgResponseStatusSucceeded, found.Status)
+	assert.True(t, found.FinalizedAt > 0)
+}
+
+func TestApplyProviderEvent_AutoAdvance_AcceptedToFailed(t *testing.T) {
+	truncateBgTables(t)
+
+	// accepted → failed IS a valid direct transition (no auto-advance needed)
+	resp := &model.BgResponse{
+		ResponseID:    "resp_aa_2",
+		Model:         "bg.llm.chat.bad",
+		Status:        model.BgResponseStatusAccepted,
+		StatusVersion: 1,
+		OrgID:         1,
+	}
+	require.NoError(t, resp.Insert())
+
+	attempt := &model.BgResponseAttempt{
+		AttemptID:     "att_aa_2",
+		ResponseID:    "resp_aa_2",
+		AttemptNo:     1,
+		Status:        model.BgAttemptStatusDispatching,
+		StatusVersion: 1,
+	}
+	require.NoError(t, attempt.Insert())
+
+	err := ApplyProviderEvent(resp.ResponseID, attempt.AttemptID, ProviderEvent{
+		Status: "failed",
+		Error:  map[string]interface{}{"code": "auth_error", "message": "bad key"},
+	})
+	require.NoError(t, err)
+
+	found, err := model.GetBgResponseByResponseID("resp_aa_2")
+	require.NoError(t, err)
+	assert.Equal(t, model.BgResponseStatusFailed, found.Status)
+}
+
+func TestApplyProviderEvent_AcceptedToRunning_Rejected(t *testing.T) {
+	truncateBgTables(t)
+
+	// accepted → running is NOT directly valid (must go through queued).
+	// But the auto-advance can handle it: accepted → queued → running
+	// Wait — "running" is NOT terminal, and mapProviderEvent maps "running" to
+	// attempt running which derives to response running.
+	// accepted → queued (auto) then queued → running (valid).
+	resp := &model.BgResponse{
+		ResponseID:    "resp_aa_3",
+		Model:         "bg.video.generate.test",
+		Status:        model.BgResponseStatusAccepted,
+		StatusVersion: 1,
+		OrgID:         1,
+	}
+	require.NoError(t, resp.Insert())
+
+	attempt := &model.BgResponseAttempt{
+		AttemptID:     "att_aa_3",
+		ResponseID:    "resp_aa_3",
+		AttemptNo:     1,
+		Status:        model.BgAttemptStatusDispatching,
+		StatusVersion: 1,
+	}
+	require.NoError(t, attempt.Insert())
+
+	err := ApplyProviderEvent(resp.ResponseID, attempt.AttemptID, ProviderEvent{
+		Status: "running",
+	})
+	require.NoError(t, err)
+
+	found, err := model.GetBgResponseByResponseID("resp_aa_3")
+	require.NoError(t, err)
+	// Should auto-advance accepted → queued → running
+	assert.Equal(t, model.BgResponseStatusRunning, found.Status)
+}

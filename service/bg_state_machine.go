@@ -155,15 +155,37 @@ func ApplyProviderEvent(responseID, attemptID string, event ProviderEvent) error
 
 	// Validate the transition
 	if err := ValidateTransition(resp.Status, newResponseStatus); err != nil {
-		// If the transition isn't valid (e.g. accepted → running skipping queued),
-		// we still allow it if the target is "more advanced" in the lifecycle.
-		// This handles cases where events arrive out of order.
-		if !newResponseStatus.IsTerminal() && resp.Status == newResponseStatus {
-			return nil // same status, no-op
+		// Same status → no-op (idempotent)
+		if resp.Status == newResponseStatus {
+			return nil
 		}
-		// For terminal statuses, always allow (provider says done = done)
-		if !newResponseStatus.IsTerminal() {
-			common.SysLog(fmt.Sprintf("state machine: skipping invalid transition %s → %s for %s",
+
+		// If the desired transition is invalid, try to auto-advance through
+		// intermediate states. This handles the common case where a provider
+		// skips "running" and goes directly to "succeeded" from "queued"
+		// (which IS valid in the transition table).
+		//
+		// However, we do NOT allow arbitrary jumps. Each intermediate step
+		// must also be valid per the transition table.
+		//
+		// Example allowed path: accepted → (auto-advance to queued) → succeeded
+		// Example blocked path: accepted → succeeded (no valid auto-advance since
+		//                       accepted → succeeded is not in the table)
+		advanced := tryAutoAdvance(resp, newResponseStatus)
+		if !advanced {
+			common.SysLog(fmt.Sprintf("state machine: rejected invalid transition %s → %s for %s: %v",
+				resp.Status, newResponseStatus, responseID, err))
+			return nil
+		}
+		// After auto-advance, resp.Status has been updated in DB.
+		// Reload to get the new version.
+		resp, err = model.GetBgResponseByResponseID(responseID)
+		if err != nil {
+			return fmt.Errorf("failed to reload response after auto-advance: %w", err)
+		}
+		// Re-validate after advance
+		if err := ValidateTransition(resp.Status, newResponseStatus); err != nil {
+			common.SysLog(fmt.Sprintf("state machine: still invalid after auto-advance %s → %s for %s",
 				resp.Status, newResponseStatus, responseID))
 			return nil
 		}
@@ -203,4 +225,77 @@ func ApplyProviderEvent(responseID, attemptID string, event ProviderEvent) error
 	}
 
 	return nil
+}
+
+// stateOrder defines the canonical lifecycle ordering for auto-advance.
+// A state can only auto-advance forward through this sequence.
+var stateOrder = []model.BgResponseStatus{
+	model.BgResponseStatusAccepted,
+	model.BgResponseStatusQueued,
+	model.BgResponseStatusRunning,
+	// streaming is a parallel track, not auto-advanced into
+}
+
+// tryAutoAdvance attempts to advance the response through intermediate states
+// to reach a position where the target transition becomes valid.
+//
+// For example, if response is "accepted" and target is "succeeded":
+//   - accepted → queued is valid (auto-advance)
+//   - queued → succeeded is valid (now the caller can apply it)
+//
+// Returns true if auto-advance succeeded (resp was updated in DB).
+// Returns false if no valid auto-advance path exists.
+func tryAutoAdvance(resp *model.BgResponse, target model.BgResponseStatus) bool {
+	current := resp.Status
+
+	// Find current position in the state order
+	currentIdx := -1
+	for i, s := range stateOrder {
+		if s == current {
+			currentIdx = i
+			break
+		}
+	}
+	if currentIdx < 0 {
+		return false // current state not in the auto-advance chain
+	}
+
+	// Try advancing one step at a time until the target becomes a valid transition
+	for i := currentIdx + 1; i < len(stateOrder); i++ {
+		next := stateOrder[i]
+
+		// Check if current → next is valid
+		if !current.CanTransitionTo(next) {
+			return false
+		}
+
+		// Check if next → target would be valid (look-ahead)
+		if next.CanTransitionTo(target) {
+			// Advance to 'next' via CAS
+			prevStatus := resp.Status
+			prevVersion := resp.StatusVersion
+			resp.Status = next
+			won, err := resp.CASUpdateStatus(prevStatus, prevVersion)
+			if err != nil || !won {
+				return false
+			}
+			common.SysLog(fmt.Sprintf("state machine: auto-advanced %s → %s (target: %s)",
+				prevStatus, next, target))
+			return true
+		}
+
+		// Advance and continue looking
+		prevStatus := resp.Status
+		prevVersion := resp.StatusVersion
+		resp.Status = next
+		won, err := resp.CASUpdateStatus(prevStatus, prevVersion)
+		if err != nil || !won {
+			return false
+		}
+		common.SysLog(fmt.Sprintf("state machine: auto-advanced %s → %s (continuing toward %s)",
+			prevStatus, next, target))
+		current = next
+	}
+
+	return false
 }

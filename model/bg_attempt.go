@@ -56,6 +56,16 @@ func GetBgAttemptsByResponseID(responseID string) ([]BgResponseAttempt, error) {
 	return attempts, err
 }
 
+// GetBgAttemptByAttemptID finds a single attempt by its public attempt_id.
+func GetBgAttemptByAttemptID(attemptID string) (*BgResponseAttempt, error) {
+	var attempt BgResponseAttempt
+	err := DB.Where("attempt_id = ?", attemptID).First(&attempt).Error
+	if err != nil {
+		return nil, err
+	}
+	return &attempt, nil
+}
+
 // GetPollableAttempts returns attempts that need polling (poll_after_at <= now, non-terminal).
 func GetPollableAttempts(now int64, limit int) ([]BgResponseAttempt, error) {
 	var attempts []BgResponseAttempt
