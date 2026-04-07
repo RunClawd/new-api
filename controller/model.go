@@ -253,21 +253,23 @@ func ListModels(c *gin.Context, modelType int) {
 		})
 	case constant.ChannelTypeGemini:
 		userGeminiModels := make([]dto.GeminiModel, len(userOpenAiModels))
-		for i, model := range userOpenAiModels {
+		for i, modelName := range userOpenAiModels {
 			userGeminiModels[i] = dto.GeminiModel{
-				Name:        model.Id,
-				DisplayName: model.Id,
+				Name:        modelName.Id,
+				DisplayName: modelName.Id,
 			}
 		}
 		c.JSON(200, gin.H{
 			"models":        userGeminiModels,
 			"nextPageToken": nil,
 		})
-	default:
+	default: // OpenAI
+		bgCaps, _ := model.GetActiveBgCapabilities()
 		c.JSON(200, gin.H{
-			"success": true,
-			"data":    userOpenAiModels,
-			"object":  "list",
+			"success":      true,
+			"data":         userOpenAiModels,
+			"object":       "list",
+			"capabilities": bgCaps,
 		})
 	}
 }

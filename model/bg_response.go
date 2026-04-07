@@ -144,3 +144,14 @@ func (r *BgResponse) CASUpdateStatus(expectedStatus BgResponseStatus, expectedVe
 	r.StatusVersion = expectedVersion + 1
 	return true, nil
 }
+
+// ListBgResponsesByOrgID returns a paginated list of responses for a specific tenant.
+func ListBgResponsesByOrgID(orgID string, offset int, limit int) ([]*BgResponse, error) {
+	var responses []*BgResponse
+	err := DB.Where("org_id = ?", orgID).
+		Order("created_at desc").
+		Offset(offset).
+		Limit(limit).
+		Find(&responses).Error
+	return responses, err
+}

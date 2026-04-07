@@ -22,23 +22,13 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 		}
 	}
 
-	// 2. Lookup adapter
-	adapter := basegate.LookupAdapter(req.Model)
-	if adapter == nil {
-		return nil, fmt.Errorf("no adapter found for model: %s", req.Model)
+	// 2. Lookup adapters
+	adapters := basegate.LookupAdapters(req.Model)
+	if len(adapters) == 0 {
+		return nil, fmt.Errorf("no adapters found for model: %s", req.Model)
 	}
 
-	// 3. Validate
-	validation := adapter.Validate(req)
-	if validation != nil && !validation.Valid {
-		errMsg := "validation failed"
-		if validation.Error != nil {
-			errMsg = validation.Error.Message
-		}
-		return nil, fmt.Errorf("validation error: %s", errMsg)
-	}
-
-	// 4. Create response record
+	// 3. Create response record
 	now := time.Now().Unix()
 	bgResp := &model.BgResponse{
 		ResponseID:     req.ResponseID,
@@ -48,11 +38,6 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 		ApiKeyID:       req.ApiKeyID,
 		EndUserID:      req.EndUserID,
 		Model:          req.Model,
-		// Sync requests start at "queued" (not "running") because:
-		// 1. queued → succeeded/failed are valid transitions (no auto-advance needed)
-		// 2. The adapter hasn't been invoked yet at this point, so "running" would be premature
-		// 3. This status is transient — never visible to the API client since the entire
-		//    dispatch (create → invoke → finalize) happens within one HTTP request
 		Status:         model.BgResponseStatusQueued,
 		StatusVersion:  1,
 		IdempotencyKey: req.IdempotencyKey,
@@ -70,46 +55,73 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 		return nil, fmt.Errorf("failed to create response record: %w", err)
 	}
 
-	// 5. Create attempt
-	attemptID := relaycommon.GenerateAttemptID()
-	attempt := &model.BgResponseAttempt{
-		AttemptID:     attemptID,
-		ResponseID:    req.ResponseID,
-		AttemptNo:     1,
-		AdapterName:   adapter.Name(),
-		Status:        model.BgAttemptStatusDispatching,
-		StatusVersion: 1,
-		StartedAt:     now,
-	}
-	if err := attempt.Insert(); err != nil {
-		return nil, fmt.Errorf("failed to create attempt record: %w", err)
-	}
+	_ = model.RecordBgAuditLog(req.OrgID, req.RequestID, req.ResponseID, "response_created", map[string]interface{}{
+		"model": req.Model,
+		"mode":  req.ExecutionOptions.Mode,
+	})
 
-	bgResp.ActiveAttemptID = attempt.ID
-
-	// 6. Invoke
-	result, invokeErr := adapter.Invoke(req)
-
-	// 7. Map result to provider event and apply state machine
-	var event ProviderEvent
-	if invokeErr != nil {
-		event = ProviderEvent{
-			Status: "failed",
-			Error: map[string]interface{}{
-				"code":    "invoke_error",
-				"message": invokeErr.Error(),
-			},
+	// 4. Fallback loop for Sync Invocation
+	for i, adapter := range adapters {
+		validation := adapter.Validate(req)
+		if validation != nil && !validation.Valid {
+			common.SysLog(fmt.Sprintf("fallback: %s invalidated pre-execution", adapter.Name()))
+			if i < len(adapters)-1 {
+				continue
+			}
+			// Only last adapter failure causes a hard failure if validation fails
+			return nil, fmt.Errorf("all adapters failed validation")
 		}
-	} else {
-		event = adapterResultToEvent(result)
+
+		attemptID := relaycommon.GenerateAttemptID()
+		attempt := &model.BgResponseAttempt{
+			AttemptID:     attemptID,
+			ResponseID:    req.ResponseID,
+			AttemptNo:     i + 1,
+			AdapterName:   adapter.Name(),
+			Status:        model.BgAttemptStatusDispatching,
+			StatusVersion: 1,
+			StartedAt:     time.Now().Unix(),
+		}
+		if err := attempt.Insert(); err != nil {
+			return nil, fmt.Errorf("failed to create attempt record: %w", err)
+		}
+
+		bgResp.ActiveAttemptID = attempt.ID
+
+		result, invokeErr := adapter.Invoke(req)
+
+		if invokeErr != nil {
+			common.SysLog(fmt.Sprintf("fallback: %s failed pre-execution (invoke err): %v", adapter.Name(), invokeErr))
+			event := ProviderEvent{
+				Status: "failed",
+				Error: map[string]interface{}{
+					"code":    "invoke_error",
+					"message": invokeErr.Error(),
+				},
+			}
+			_ = ApplyProviderEvent(req.ResponseID, attemptID, event)
+			if i < len(adapters)-1 {
+				continue // try next
+			}
+			break
+		}
+
+		if result.Status == "failed" && result.Error != nil && result.Error.Code == "provider_unavailable" {
+			common.SysLog(fmt.Sprintf("fallback: %s returned provider_unavailable: %s", adapter.Name(), result.Error.Message))
+			_ = ApplyProviderEvent(req.ResponseID, attemptID, adapterResultToEvent(result))
+			if i < len(adapters)-1 {
+				continue // try next
+			}
+			break
+		}
+
+		// Success or un-retryable failure
+		_ = ApplyProviderEvent(req.ResponseID, attemptID, adapterResultToEvent(result))
+		break
 	}
 
-	// Apply the state machine
-	if err := ApplyProviderEvent(req.ResponseID, attemptID, event); err != nil {
-		common.SysLog(fmt.Sprintf("orchestrator: failed to apply event for %s: %v", req.ResponseID, err))
-	}
-
-	// 8. Build API response from DB (source of truth)
+	// 5. Build API response from DB
+	bgResp, _ = model.GetBgResponseByResponseID(req.ResponseID)
 	return buildResponseFromDB(bgResp)
 }
 
@@ -124,10 +136,10 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 		}
 	}
 
-	// 2. Lookup adapter
-	adapter := basegate.LookupAdapter(req.Model)
-	if adapter == nil {
-		return nil, fmt.Errorf("no adapter found for model: %s", req.Model)
+	// 2. Lookup adapters
+	adapters := basegate.LookupAdapters(req.Model)
+	if len(adapters) == 0 {
+		return nil, fmt.Errorf("no adapters found for model: %s", req.Model)
 	}
 
 	// 3. Create response record
@@ -157,44 +169,72 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 		return nil, fmt.Errorf("failed to create response record: %w", err)
 	}
 
-	// 4. Create attempt
-	attemptID := relaycommon.GenerateAttemptID()
-	attempt := &model.BgResponseAttempt{
-		AttemptID:     attemptID,
-		ResponseID:    req.ResponseID,
-		AttemptNo:     1,
-		AdapterName:   adapter.Name(),
-		Status:        model.BgAttemptStatusDispatching,
-		StatusVersion: 1,
-		StartedAt:     now,
-	}
-	if err := attempt.Insert(); err != nil {
-		return nil, fmt.Errorf("failed to create attempt record: %w", err)
-	}
+	_ = model.RecordBgAuditLog(req.OrgID, req.RequestID, req.ResponseID, "response_created", map[string]interface{}{
+		"model": req.Model,
+		"mode":  req.ExecutionOptions.Mode,
+	})
 
-	bgResp.ActiveAttemptID = attempt.ID
-
-	// 5. Invoke (async: returns accepted/queued with provider_request_id)
-	result, invokeErr := adapter.Invoke(req)
-
-	if invokeErr != nil {
-		// Mark as failed immediately
-		event := ProviderEvent{
-			Status: "failed",
-			Error: map[string]interface{}{
-				"code":    "invoke_error",
-				"message": invokeErr.Error(),
-			},
+	// 4. Fallback loop for Async Invocation
+	for i, adapter := range adapters {
+		validation := adapter.Validate(req)
+		if validation != nil && !validation.Valid {
+			common.SysLog(fmt.Sprintf("fallback: %s invalidated pre-execution", adapter.Name()))
+			if i < len(adapters)-1 {
+				continue
+			}
+			return nil, fmt.Errorf("all adapters failed validation")
 		}
+
+		attemptID := relaycommon.GenerateAttemptID()
+		attempt := &model.BgResponseAttempt{
+			AttemptID:     attemptID,
+			ResponseID:    req.ResponseID,
+			AttemptNo:     i + 1,
+			AdapterName:   adapter.Name(),
+			Status:        model.BgAttemptStatusDispatching,
+			StatusVersion: 1,
+			StartedAt:     time.Now().Unix(),
+		}
+		if err := attempt.Insert(); err != nil {
+			return nil, fmt.Errorf("failed to create attempt record: %w", err)
+		}
+
+		bgResp.ActiveAttemptID = attempt.ID
+
+		result, invokeErr := adapter.Invoke(req)
+
+		if invokeErr != nil {
+			common.SysLog(fmt.Sprintf("fallback: %s failed pre-execution (invoke err): %v", adapter.Name(), invokeErr))
+			event := ProviderEvent{
+				Status: "failed",
+				Error: map[string]interface{}{
+					"code":    "invoke_error",
+					"message": invokeErr.Error(),
+				},
+			}
+			_ = ApplyProviderEvent(req.ResponseID, attemptID, event)
+			if i < len(adapters)-1 {
+				continue
+			}
+			break
+		}
+
+		if result.Status == "failed" && result.Error != nil && result.Error.Code == "provider_unavailable" {
+			common.SysLog(fmt.Sprintf("fallback: %s returned provider_unavailable: %s", adapter.Name(), result.Error.Message))
+			_ = ApplyProviderEvent(req.ResponseID, attemptID, adapterResultToEvent(result))
+			if i < len(adapters)-1 {
+				continue
+			}
+			break
+		}
+
+		// Success or un-retryable failure, apply initial state
+		event := adapterResultToEvent(result)
 		_ = ApplyProviderEvent(req.ResponseID, attemptID, event)
-		return buildResponseFromDB(bgResp)
+		break
 	}
 
-	// 6. Apply initial state (accepted/queued)
-	event := adapterResultToEvent(result)
-	_ = ApplyProviderEvent(req.ResponseID, attemptID, event)
-
-	// 7. Reload and return
+	// 5. Reload and return
 	bgResp, _ = model.GetBgResponseByResponseID(req.ResponseID)
 	return buildResponseFromDB(bgResp)
 }

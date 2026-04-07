@@ -289,6 +289,8 @@ func migrateDB() error {
 		&BgSession{},
 		&BgSessionAction{},
 		&BgWebhookEvent{},
+		&BgCapability{},
+		&BgAuditLog{},
 	)
 	if err != nil {
 		return err

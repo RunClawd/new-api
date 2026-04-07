@@ -160,6 +160,7 @@ func TestPostSessionAction_SuccessAndIdempotency(t *testing.T) {
 		ResponseID:        "resp_action",
 		Status:            model.BgSessionStatusActive,
 		Model:             "bg.sandbox.python",
+		AdapterName:       "sess_mock2",
 		CreatedAt:         time.Now().Unix(),
 		ActionLockVersion: 1,
 		StatusVersion:     1,
@@ -214,6 +215,7 @@ func TestCloseSessionByID(t *testing.T) {
 		ResponseID:        "resp_close",
 		Status:            model.BgSessionStatusActive,
 		Model:             "bg.sandbox.python",
+		AdapterName:       "sess_mock2",
 		CreatedAt:         time.Now().Unix() - 600, // 10 mins ago
 		ActionLockVersion: 1,
 		StatusVersion:     1,

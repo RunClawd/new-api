@@ -113,7 +113,7 @@ func (w *BgPollWorker) scan() {
 
 func (w *BgPollWorker) pollAttempt(attempt *model.BgResponseAttempt) {
 	// 1. Lookup adapter
-	adapter := basegate.LookupAdapter(w.resolveModelFromResponse(attempt.ResponseID))
+	adapter := basegate.LookupAdapterByName(attempt.AdapterName)
 	if adapter == nil {
 		common.SysError(fmt.Sprintf("bg_poll_worker: no adapter for attempt %s", attempt.AttemptID))
 		return
@@ -180,14 +180,7 @@ func (w *BgPollWorker) pollLegacyAttempt(attempt *model.BgResponseAttempt) {
 	common.SysLog(fmt.Sprintf("bg_poll_worker: legacy attempt %s deferred to existing poll loop", attempt.AttemptID))
 }
 
-// resolveModelFromResponse loads the model name from the response record.
-func (w *BgPollWorker) resolveModelFromResponse(responseID string) string {
-	resp, err := model.GetBgResponseByResponseID(responseID)
-	if err != nil {
-		return ""
-	}
-	return resp.Model
-}
+
 
 // PollAttemptOnce manually polls a single attempt. Used for testing and one-off polling.
 func PollAttemptOnce(attemptID string) error {

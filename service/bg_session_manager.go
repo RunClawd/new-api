@@ -22,25 +22,45 @@ var (
 
 // CreateSession initiates a new stateful session using a SessionCapableAdapter.
 func CreateSession(req *relaycommon.CanonicalRequest) (*dto.BGSessionResponse, error) {
-	// Lookup adapter
-	providerAdapter := basegate.LookupAdapter(req.Model)
-	if providerAdapter == nil {
-		return nil, fmt.Errorf("no adapter found for model: %s", req.Model)
+	// Lookup adapters
+	adapters := basegate.LookupAdapters(req.Model)
+	if len(adapters) == 0 {
+		return nil, fmt.Errorf("no adapters found for model: %s", req.Model)
 	}
 
-	sessionAdapter, ok := providerAdapter.(basegate.SessionCapableAdapter)
-	if !ok {
-		return nil, fmt.Errorf("adapter for model %s does not support sessions", req.Model)
-	}
+	var providerResult *relaycommon.SessionResult
+	var providerErr error
+	var selectedAdapter basegate.SessionCapableAdapter
+	var lastValidAdapter bool
 
-	// Validate request
-	validation := sessionAdapter.Validate(req)
-	if validation != nil && !validation.Valid {
-		errMsg := "validation failed"
-		if validation.Error != nil {
-			errMsg = validation.Error.Message
+	for _, providerAdapter := range adapters {
+		sessionAdapter, ok := providerAdapter.(basegate.SessionCapableAdapter)
+		if !ok {
+			continue
 		}
-		return nil, fmt.Errorf("%w: %s", ErrSessionValidation, errMsg)
+
+		// Validate request
+		validation := sessionAdapter.Validate(req)
+		if validation != nil && !validation.Valid {
+			continue
+		}
+		lastValidAdapter = true
+
+		providerResult, providerErr = sessionAdapter.CreateSession(req)
+		if providerErr != nil {
+			common.SysLog(fmt.Sprintf("fallback: %s failed to create session: %v", sessionAdapter.Name(), providerErr))
+			continue
+		}
+		// Success
+		selectedAdapter = sessionAdapter
+		break
+	}
+
+	if providerResult == nil {
+		if !lastValidAdapter {
+			return nil, fmt.Errorf("%w: no valid adapter found", ErrSessionValidation)
+		}
+		return nil, fmt.Errorf("all %d adapters failed to create session. last err: %v", len(adapters), providerErr)
 	}
 
 	// Generate session ID
@@ -55,7 +75,7 @@ func CreateSession(req *relaycommon.CanonicalRequest) (*dto.BGSessionResponse, e
 		ProjectID:         req.ProjectID,
 		ApiKeyID:          req.ApiKeyID,
 		Model:             req.Model,
-		AdapterName:       sessionAdapter.Name(),
+		AdapterName:       selectedAdapter.Name(),
 		Status:            model.BgSessionStatusCreating,
 		StatusVersion:     1,
 		ActionLockVersion: 1,
@@ -68,16 +88,8 @@ func CreateSession(req *relaycommon.CanonicalRequest) (*dto.BGSessionResponse, e
 		return nil, fmt.Errorf("failed to create session record: %w", err)
 	}
 
-	// Invoke adapter
-	result, invokeErr := sessionAdapter.CreateSession(req)
-	if invokeErr != nil {
-		// Mark failed
-		_, _ = bgSess.CASUpdateStatus(model.BgSessionStatusCreating, bgSess.StatusVersion, model.BgSessionStatusFailed)
-		return nil, fmt.Errorf("adapter failed to create session: %w", invokeErr)
-	}
-
 	// Calculate expiration
-	expiresAt := result.ExpiresAt
+	expiresAt := providerResult.ExpiresAt
 	if expiresAt <= 0 {
 		// Fallback to config max duration. In a real system, we'd lookup model meta.
 		// Using 3600 timeout as a default fallback
@@ -85,7 +97,7 @@ func CreateSession(req *relaycommon.CanonicalRequest) (*dto.BGSessionResponse, e
 	}
 
 	// Successfully created -> active
-	bgSess.ProviderSessionID = result.SessionID
+	bgSess.ProviderSessionID = providerResult.SessionID
 	bgSess.ExpiresAt = expiresAt
 	bgSess.IdleTimeoutSec = 300 // default 5 mins idle timeout
 	
@@ -170,10 +182,10 @@ func ExecuteSessionAction(sessionID string, req *dto.BGSessionActionRequest) (*d
 	_ = actionLog.Insert()
 
 	// 5. Lookup Adapter
-	providerAdapter := basegate.LookupAdapter(bgSess.Model)
+	providerAdapter := basegate.LookupAdapterByName(bgSess.AdapterName)
 	if providerAdapter == nil {
 		_ = markActionFailed(actionLog, "internal_error", "Adapter missing")
-		return nil, fmt.Errorf("%w: missing for model %s", ErrSessionAdapter, bgSess.Model)
+		return nil, fmt.Errorf("%w: missing adapter %s", ErrSessionAdapter, bgSess.AdapterName)
 	}
 	sessionAdapter, ok := providerAdapter.(basegate.SessionCapableAdapter)
 	if !ok {
@@ -242,7 +254,7 @@ func CloseSession(sessionID string) (*dto.BGSessionResponse, error) {
 	}
 
 	// Call provider if we have an active session
-	providerAdapter := basegate.LookupAdapter(bgSess.Model)
+	providerAdapter := basegate.LookupAdapterByName(bgSess.AdapterName)
 	if sessionAdapter, ok := providerAdapter.(basegate.SessionCapableAdapter); ok {
 		// Best effort termination
 		sessionAdapter.CloseSession(bgSess.ProviderSessionID)

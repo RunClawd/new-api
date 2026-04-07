@@ -108,7 +108,7 @@ func (w *BgSessionWorker) ScanExpired() {
 		}
 
 		// Adapter best-effort termination
-		providerAdapter := basegate.LookupAdapter(session.Model)
+		providerAdapter := basegate.LookupAdapterByName(session.AdapterName)
 		if sessionAdapter, ok := providerAdapter.(basegate.SessionCapableAdapter); ok {
 			sessionAdapter.CloseSession(session.ProviderSessionID)
 		}

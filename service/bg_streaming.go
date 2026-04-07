@@ -16,8 +16,8 @@ import (
 // Flow: create response -> create attempt -> adapter.Stream -> SSE loop -> ApplyProviderEvent (terminal).
 func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 	// 1. Adapter Lookup
-	adapter := basegate.LookupAdapter(req.Model)
-	if adapter == nil {
+	adapters := basegate.LookupAdapters(req.Model)
+	if len(adapters) == 0 {
 		return fmt.Errorf("no adapter found for model: %s", req.Model)
 	}
 
@@ -50,37 +50,76 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 		return fmt.Errorf("failed to create response record: %w", err)
 	}
 
-	// 3. Create attempt
-	attemptID := relaycommon.GenerateAttemptID()
-	attempt := &model.BgResponseAttempt{
-		AttemptID:     attemptID,
-		ResponseID:    req.ResponseID,
-		AttemptNo:     1,
-		AdapterName:   adapter.Name(),
-		Status:        model.BgAttemptStatusRunning,
-		StatusVersion: 1,
-		StartedAt:     now,
-	}
-	if err := attempt.Insert(); err != nil {
-		return fmt.Errorf("failed to create attempt record: %w", err)
-	}
+	_ = model.RecordBgAuditLog(req.OrgID, req.RequestID, req.ResponseID, "response_created", map[string]interface{}{
+		"model": req.Model,
+		"mode":  req.ExecutionOptions.Mode,
+	})
 
-	bgResp.ActiveAttemptID = attempt.ID
+	var stream <-chan relaycommon.SSEEvent
+	var activeAttemptID string
+	var finalErr error
 
-	// 4. Start streaming via adapter
-	stream, streamErr := adapter.Stream(req)
-
-	if streamErr != nil {
-		// Immediately fail
-		event := ProviderEvent{
-			Status: "failed",
-			Error: map[string]interface{}{
-				"code":    "invoke_error",
-				"message": streamErr.Error(),
-			},
+	// 4. Fallback Loop
+	for i, adapter := range adapters {
+		validation := adapter.Validate(req)
+		if validation != nil && !validation.Valid {
+			common.SysLog(fmt.Sprintf("fallback: %s invalidated pre-execution", adapter.Name()))
+			if i < len(adapters)-1 {
+				continue
+			}
+			return fmt.Errorf("all adapters failed validation")
 		}
-		_ = ApplyProviderEvent(req.ResponseID, attemptID, event)
-		return streamErr
+
+		// 3. Create attempt
+		attemptID := relaycommon.GenerateAttemptID()
+		attempt := &model.BgResponseAttempt{
+			AttemptID:     attemptID,
+			ResponseID:    req.ResponseID,
+			AttemptNo:     i + 1,
+			AdapterName:   adapter.Name(),
+			Status:        model.BgAttemptStatusRunning,
+			StatusVersion: 1,
+			StartedAt:     time.Now().Unix(),
+		}
+		if err := attempt.Insert(); err != nil {
+			return fmt.Errorf("failed to create attempt record: %w", err)
+		}
+
+		bgResp.ActiveAttemptID = attempt.ID
+		activeAttemptID = attemptID
+
+		// 4. Start streaming via adapter
+		s, streamErr := adapter.Stream(req)
+
+		if streamErr != nil {
+			common.SysLog(fmt.Sprintf("fallback: %s failed pre-execution (stream err): %v", adapter.Name(), streamErr))
+			// Immediately fail attempt
+			event := ProviderEvent{
+				Status: "failed",
+				Error: map[string]interface{}{
+					"code":    "invoke_error",
+					"message": streamErr.Error(),
+				},
+			}
+			_ = ApplyProviderEvent(req.ResponseID, attemptID, event)
+			finalErr = streamErr
+			if i < len(adapters)-1 {
+				continue // fallback
+			}
+			break
+		}
+
+		// Success
+		stream = s
+		finalErr = nil
+		break
+	}
+
+	if finalErr != nil {
+		return finalErr
+	}
+	if stream == nil {
+		return fmt.Errorf("stream failed: all adapters failed")
 	}
 
 	// 5. Setup SSE Headers
@@ -157,7 +196,8 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 		}
 	}
 
-	if err := ApplyProviderEvent(req.ResponseID, attemptID, terminalEvent); err != nil {
+	// 8. Terminal update via state machine
+	if err := ApplyProviderEvent(req.ResponseID, activeAttemptID, terminalEvent); err != nil {
 		common.SysLog(fmt.Sprintf("streaming: failed to apply terminal event for %s: %v", req.ResponseID, err))
 	}
 

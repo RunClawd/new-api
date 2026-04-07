@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common" // Contains CanonicalRequest
@@ -26,9 +27,9 @@ func PostSessions(c *gin.Context) {
 	}
 
 	// Read auth bounds (would normally come from middleware check)
-	orgID := c.GetInt("org_id")
-	projectID := c.GetInt("project_id")
-	apiKeyID := c.GetInt("api_key_id")
+	orgID := c.GetInt("id") // Tenant ID
+	projectID, _ := strconv.Atoi(c.GetHeader("X-Project-Id"))
+	apiKeyID := c.GetInt("token_id")
 
 	// Construct CanonicalRequest
 	canonicalReq := &relaycommon.CanonicalRequest{
@@ -38,6 +39,8 @@ func PostSessions(c *gin.Context) {
 		OrgID:      orgID,
 		ProjectID:  projectID,
 		ApiKeyID:   apiKeyID,
+		EndUserID:  basegateReq.Metadata["user_id"],
+		Metadata:   basegateReq.Metadata,
 	}
 
 	sessionResp, err := service.CreateSession(canonicalReq)

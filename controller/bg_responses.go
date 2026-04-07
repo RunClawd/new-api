@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -23,15 +24,17 @@ func PostResponses(c *gin.Context) {
 		return
 	}
 
+	projectID, _ := strconv.Atoi(c.GetHeader("X-Project-Id"))
+
 	// Build canonical request
 	canonicalReq := &relaycommon.CanonicalRequest{
 		RequestID:  relaycommon.GenerateResponseID(), // reuse generator for request IDs
 		ResponseID: relaycommon.GenerateResponseID(),
 		Model:      req.Model,
-		OrgID:      c.GetInt("org_id"),
-		ProjectID:  c.GetInt("project_id"),
-		ApiKeyID:   c.GetInt("api_key_id"),
-		EndUserID:  c.GetString("end_user_id"),
+		OrgID:      c.GetInt("id"), // Context "id" is the user/tenant ID set by TokenAuth
+		ProjectID:  projectID,
+		ApiKeyID:   c.GetInt("token_id"),
+		EndUserID:  req.Metadata["user_id"], // Optional user tracking alias
 		Input:      req.Input,
 		Metadata:   req.Metadata,
 	}

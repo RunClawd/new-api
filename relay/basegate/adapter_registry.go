@@ -6,28 +6,36 @@ import (
 
 var (
 	adapterRegistryMu sync.RWMutex
-	adapterRegistry   = make(map[string]ProviderAdapter)
+	capabilityMap     = make(map[string][]ProviderAdapter)
+	nameMap           = make(map[string]ProviderAdapter)
 )
 
 func RegisterAdapter(adapter ProviderAdapter) {
 	adapterRegistryMu.Lock()
 	defer adapterRegistryMu.Unlock()
+	nameMap[adapter.Name()] = adapter
 	for _, b := range adapter.DescribeCapabilities() {
-		adapterRegistry[b.CapabilityPattern] = adapter
+		capabilityMap[b.CapabilityPattern] = append(capabilityMap[b.CapabilityPattern], adapter)
 	}
 }
 
-func LookupAdapter(modelName string) ProviderAdapter {
+func LookupAdapters(modelName string) []ProviderAdapter {
 	adapterRegistryMu.RLock()
 	defer adapterRegistryMu.RUnlock()
-	return adapterRegistry[modelName]
+	return capabilityMap[modelName]
+}
+
+func LookupAdapterByName(adapterName string) ProviderAdapter {
+	adapterRegistryMu.RLock()
+	defer adapterRegistryMu.RUnlock()
+	return nameMap[adapterName]
 }
 
 func ListRegisteredCapabilities() []string {
 	adapterRegistryMu.RLock()
 	defer adapterRegistryMu.RUnlock()
-	names := make([]string, 0, len(adapterRegistry))
-	for name := range adapterRegistry {
+	names := make([]string, 0, len(capabilityMap))
+	for name := range capabilityMap {
 		names = append(names, name)
 	}
 	return names
@@ -36,11 +44,12 @@ func ListRegisteredCapabilities() []string {
 func RegisteredAdapterCount() int {
 	adapterRegistryMu.RLock()
 	defer adapterRegistryMu.RUnlock()
-	return len(adapterRegistry)
+	return len(nameMap)
 }
 
 func ClearRegistry() {
 	adapterRegistryMu.Lock()
 	defer adapterRegistryMu.Unlock()
-	adapterRegistry = make(map[string]ProviderAdapter)
+	capabilityMap = make(map[string][]ProviderAdapter)
+	nameMap = make(map[string]ProviderAdapter)
 }
