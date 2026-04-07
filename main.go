@@ -123,6 +123,7 @@ func main() {
 
 	// BaseGate: register legacy task adaptors into unified /v1/bg/responses pipeline
 	relay.RegisterAllLegacyTaskAdaptors()
+	relay.RegisterNativeAdapters()
 
 	// BaseGate: start background workers on master node
 	if common.IsMasterNode {

@@ -1,8 +1,13 @@
 package relay
 
 import (
+	"fmt"
+
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/basegate"
+	"github.com/QuantumNous/new-api/relay/basegate/adapters"
 	"github.com/QuantumNous/new-api/relay/channel/task/ali"
 	"github.com/QuantumNous/new-api/relay/channel/task/doubao"
 	"github.com/QuantumNous/new-api/relay/channel/task/gemini"
@@ -63,4 +68,30 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(b)
+}
+
+// RegisterNativeAdapters dynamically initializes Native Adapters from the database.
+func RegisterNativeAdapters() {
+	var channels []*model.Channel
+	// Note: First key strategy applies. If multi-key, we just use the original Key string
+	// or the first one. For native adapter init, we take GetKeys()[0] as simplest approach,
+	// or just pass `ch.Key` and handle rotation internally. For now, pass first key.
+	if err := model.DB.Where("type = ? AND status = 1", constant.ChannelTypeOpenAI).Find(&channels).Error; err != nil {
+		common.SysError("bg_init: failed to load openai channels: " + err.Error())
+		return
+	}
+
+	count := 0
+	for _, ch := range channels {
+		keys := ch.GetKeys()
+		if len(keys) == 0 {
+			continue
+		}
+		apiKey := keys[0] // pick the first key for simplicity 
+		adapter := adapters.NewOpenAILLMAdapter(ch.Id, ch.Name, apiKey, ch.GetBaseURL())
+		basegate.RegisterAdapter(adapter)
+		count++
+		common.SysLog(fmt.Sprintf("bg_init: registered native adapter openai_native_ch%d", ch.Id))
+	}
+	common.SysLog(fmt.Sprintf("bg_init: total native adapters registered: %d", count))
 }
