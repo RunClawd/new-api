@@ -76,6 +76,7 @@ type BgSession struct {
 	ActionLockVersion int             `json:"action_lock_version" gorm:"not null;default:1"`
 	StatusVersion     int             `json:"status_version" gorm:"not null;default:1"`
 	CreatedAt         int64           `json:"created_at" gorm:"autoCreateTime"`
+	WebhookURL        string          `json:"webhook_url" gorm:"type:text"`
 }
 
 func (BgSession) TableName() string {

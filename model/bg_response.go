@@ -81,6 +81,7 @@ type BgResponse struct {
 	UpdatedAt       int64            `json:"updated_at" gorm:"autoUpdateTime"`
 	FinalizedAt     int64            `json:"finalized_at" gorm:"default:0"`
 	ExpiresAt       int64            `json:"expires_at" gorm:"default:0"`
+	WebhookURL      string           `json:"webhook_url" gorm:"type:text"`
 }
 
 func (BgResponse) TableName() string {

@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -11,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/relay/channel/ai360"
+	"github.com/QuantumNous/new-api/relay/basegate"
 	"github.com/QuantumNous/new-api/relay/channel/lingyiwanwu"
 	"github.com/QuantumNous/new-api/relay/channel/minimax"
 	"github.com/QuantumNous/new-api/relay/channel/moonshot"
@@ -201,6 +203,36 @@ func ListModels(c *gin.Context, modelType int) {
 			}
 		}
 	}
+
+	// [Phase 4] Deduplicate and merge BaseGate dynamic models
+	seenModels := make(map[string]bool)
+	for _, m := range userOpenAiModels {
+		seenModels[m.Id] = true
+	}
+	for _, bgModel := range basegate.ListRegisteredCapabilities() {
+		if !seenModels[bgModel] {
+			// Require quota/pricing config unless acceptUnsetRatioModel is true
+			if !acceptUnsetRatioModel {
+				_, _, exist := ratio_setting.GetModelRatioOrPrice(bgModel)
+				if !exist {
+					continue
+				}
+			}
+			userOpenAiModels = append(userOpenAiModels, dto.OpenAIModels{
+				Id:                     bgModel,
+				Object:                 "model",
+				Created:                int(time.Now().Unix()),
+				OwnedBy:                "basegate",
+				SupportedEndpointTypes: []constant.EndpointType{constant.EndpointTypeBgResponses, constant.EndpointTypeBgSessions},
+			})
+			seenModels[bgModel] = true
+		}
+	}
+
+	// [Phase 4] Sort models alphabetically
+	sort.Slice(userOpenAiModels, func(i, j int) bool {
+		return userOpenAiModels[i].Id < userOpenAiModels[j].Id
+	})
 
 	switch modelType {
 	case constant.ChannelTypeAnthropic:

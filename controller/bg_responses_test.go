@@ -49,6 +49,7 @@ func setupBgControllerTestDB(t *testing.T) *gorm.DB {
 		&model.BgLedgerEntry{},
 		&model.BgSession{},
 		&model.BgSessionAction{},
+		&model.BgWebhookEvent{},
 	); err != nil {
 		t.Fatalf("migration failed: %v", err)
 	}
@@ -65,9 +66,11 @@ func setupBgControllerTestDB(t *testing.T) *gorm.DB {
 
 // mockBgAdapter implements basegate.ProviderAdapter for controller tests.
 type mockBgAdapter struct {
-	name         string
-	capabilities []relaycommon.CapabilityBinding
-	invokeResult *relaycommon.AdapterResult
+	name          string
+	capabilities  []relaycommon.CapabilityBinding
+	invokeResult  *relaycommon.AdapterResult
+	streamEvents  []relaycommon.SSEEvent
+	streamError   error
 }
 
 func (m *mockBgAdapter) Name() string { return m.name }
@@ -87,7 +90,21 @@ func (m *mockBgAdapter) Cancel(providerRequestID string) (*relaycommon.AdapterRe
 	return &relaycommon.AdapterResult{Status: "canceled"}, nil
 }
 func (m *mockBgAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan relaycommon.SSEEvent, error) {
-	return nil, basegate.ErrStreamNotSupported
+	if m.streamError != nil {
+		return nil, m.streamError
+	}
+	if len(m.streamEvents) == 0 {
+		return nil, basegate.ErrStreamNotSupported
+	}
+	
+	ch := make(chan relaycommon.SSEEvent)
+	go func() {
+		defer close(ch)
+		for _, e := range m.streamEvents {
+			ch <- e
+		}
+	}()
+	return ch, nil
 }
 
 func newBgTestContext(t *testing.T, method, target string, body interface{}) (*gin.Context, *httptest.ResponseRecorder) {
@@ -188,6 +205,48 @@ func TestPostResponses_AsyncReturns202(t *testing.T) {
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
 	assert.Equal(t, "queued", resp["status"])
+}
+
+// ---------------------------------------------------------------------------
+// POST /v1/bg/responses — stream
+// ---------------------------------------------------------------------------
+
+func TestPostResponses_StreamSuccess(t *testing.T) {
+	setupBgControllerTestDB(t)
+	basegate.ClearRegistry()
+
+	basegate.RegisterAdapter(&mockBgAdapter{
+		name: "ctrl_stream",
+		capabilities: []relaycommon.CapabilityBinding{
+			{CapabilityPattern: "bg.llm.chat.stream_test"},
+		},
+		streamEvents: []relaycommon.SSEEvent{
+			{Type: relaycommon.SSEEventResponseCreated, Data: "started"},
+			{Type: relaycommon.SSEEventTextDelta, Data: map[string]interface{}{"delta": "hello "}},
+			{Type: relaycommon.SSEEventTextDelta, Data: map[string]interface{}{"delta": "world"}},
+			{Type: relaycommon.SSEEventTextDone},
+		},
+	})
+
+	body := map[string]interface{}{
+		"model": "bg.llm.chat.stream_test",
+		"input": "streaming prompt",
+		"execution_options": map[string]interface{}{
+			"mode": "stream",
+		},
+	}
+
+	ctx, recorder := newBgTestContext(t, http.MethodPost, "/v1/bg/responses", body)
+	PostResponses(ctx)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Header().Get("Content-Type"), "text/event-stream")
+
+	// Ensure chunks match Schema §3 format: "event: <type>\ndata: <json>\n\n"
+	bodyStr := recorder.Body.String()
+	assert.Contains(t, bodyStr, "event: response.created\ndata: ")
+	assert.Contains(t, bodyStr, "event: response.output_text.delta\ndata: ")
+	assert.Contains(t, bodyStr, "data: [DONE]")
 }
 
 // ---------------------------------------------------------------------------

@@ -16,4 +16,6 @@ const (
 	//EndpointTypeSuno           EndpointType = "suno-proxy"
 	//EndpointTypeKling          EndpointType = "kling"
 	//EndpointTypeJimeng         EndpointType = "jimeng"
+	EndpointTypeBgResponses      EndpointType = "bg-responses"
+	EndpointTypeBgSessions       EndpointType = "bg-sessions"
 )

@@ -68,14 +68,20 @@ func PostResponses(c *gin.Context) {
 	case "async":
 		resp, err = service.DispatchAsync(canonicalReq)
 	case "stream":
-		// TODO: Phase 2 - Streaming mode
-		c.JSON(http.StatusNotImplemented, gin.H{
-			"error": gin.H{
-				"code":    "not_implemented",
-				"message": "Streaming mode is not yet implemented",
-			},
-		})
-		return
+		err = service.DispatchStream(canonicalReq, c)
+		if err != nil {
+			common.SysError("PostResponses stream error: " + err.Error())
+			// DispatchStream already writes header if it started streaming, but if it errored before, we return JSON.
+			if !c.Writer.Written() {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": gin.H{
+						"code":    "internal_error",
+						"message": err.Error(),
+					},
+				})
+			}
+		}
+		return // Stream handled entirely within DispatchStream
 	default: // sync
 		resp, err = service.DispatchSync(canonicalReq)
 	}

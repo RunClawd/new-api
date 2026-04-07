@@ -218,10 +218,29 @@ func ApplyProviderEvent(responseID, attemptID string, event ProviderEvent) error
 		return nil // race lost — another event was applied first
 	}
 
-	// 7. If terminal: trigger billing finalization (placeholder for Phase 2)
+	// 7. If terminal: trigger webhook outbox
 	if isTerminal {
-		// TODO: Phase 2 - Finalize usage → billing → ledger → outbox
 		common.SysLog(fmt.Sprintf("state machine: response %s finalized with status %s", responseID, newResponseStatus))
+		
+		if resp.WebhookURL != "" {
+			payload := map[string]interface{}{
+				"id":     resp.ResponseID,
+				"object": "response",
+				"status": resp.Status,
+			}
+			
+			// Event type mapping:
+			//   succeeded → response.completed (default, matches OpenAI convention)
+			//   failed    → response.failed
+			//   canceled  → response.canceled
+			//   expired   → response.expired
+			eventType := "response.completed"
+			if resp.Status == model.BgResponseStatusFailed || resp.Status == model.BgResponseStatusCanceled || resp.Status == model.BgResponseStatusExpired {
+				eventType = fmt.Sprintf("response.%s", resp.Status)
+			}
+
+			_ = EnqueueWebhookEvent(resp.ResponseID, resp.OrgID, eventType, payload)
+		}
 	}
 
 	return nil

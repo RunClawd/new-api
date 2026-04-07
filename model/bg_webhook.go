@@ -1,5 +1,13 @@
 package model
 
+const (
+	WebhookStatusPending    = "pending"
+	WebhookStatusDelivering = "delivering"
+	WebhookStatusDelivered  = "delivered"
+	WebhookStatusRetrying   = "retrying"
+	WebhookStatusDead       = "dead"
+)
+
 // BgWebhookEvent represents the bg_webhook_events table.
 type BgWebhookEvent struct {
 	ID             int64  `json:"id" gorm:"primaryKey;autoIncrement"`
@@ -11,6 +19,7 @@ type BgWebhookEvent struct {
 	DeliveryStatus string `json:"delivery_status" gorm:"type:varchar(20);not null;default:'pending'"`
 	RetryCount     int    `json:"retry_count" gorm:"default:0"`
 	NextRetryAt    int64  `json:"next_retry_at" gorm:"default:0;index"`
+	Signature      string `json:"signature" gorm:"type:varchar(255)"` // Reserved for HMAC Phase 5
 	CreatedAt      int64  `json:"created_at" gorm:"autoCreateTime"`
 }
 
@@ -26,7 +35,7 @@ func (e *BgWebhookEvent) Insert() error {
 func GetPendingWebhookEvents(now int64, limit int) ([]BgWebhookEvent, error) {
 	var events []BgWebhookEvent
 	err := DB.Where("delivery_status IN ? AND (next_retry_at = 0 OR next_retry_at <= ?)",
-		[]string{"pending", "retrying"}, now).
+		[]string{WebhookStatusPending, WebhookStatusRetrying}, now).
 		Order("id ASC").
 		Limit(limit).
 		Find(&events).Error

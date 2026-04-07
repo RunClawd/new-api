@@ -61,6 +61,7 @@ func CreateSession(req *relaycommon.CanonicalRequest) (*dto.BGSessionResponse, e
 		ActionLockVersion: 1,
 		CreatedAt:         now,
 		LastActionAt:      now,
+		WebhookURL:        req.ExecutionOptions.WebhookURL,
 	}
 
 	if err := bgSess.Insert(); err != nil {
@@ -257,6 +258,16 @@ func CloseSession(sessionID string) (*dto.BGSessionResponse, error) {
 	// Trigger Phase 3 Billing!
 	if err := FinalizeSessionBilling(bgSess); err != nil {
 		common.SysLog(fmt.Sprintf("session_manager: FinalizeSessionBilling failed for %s: %v", sessionID, err))
+	}
+	
+	// Phase 4 Webhook Outbox
+	if bgSess.WebhookURL != "" {
+		payload := map[string]interface{}{
+			"id":     bgSess.SessionID,
+			"object": "session",
+			"status": bgSess.Status,
+		}
+		_ = EnqueueWebhookEvent(bgSess.SessionID, bgSess.OrgID, "session.closed", payload)
 	}
 
 	return buildSessionResponseFromDB(bgSess)
