@@ -280,6 +280,15 @@ func migrateDB() error {
 		&SubscriptionPreConsumeRecord{},
 		&CustomOAuthProvider{},
 		&UserOAuthBinding{},
+		// BaseGate tables
+		&BgResponse{},
+		&BgResponseAttempt{},
+		&BgUsageRecord{},
+		&BgBillingRecord{},
+		&BgLedgerEntry{},
+		&BgSession{},
+		&BgSessionAction{},
+		&BgWebhookEvent{},
 	)
 	if err != nil {
 		return err

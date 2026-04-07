@@ -34,6 +34,16 @@ type Model struct {
 	UpdatedTime  int64          `json:"updated_time" gorm:"bigint"`
 	DeletedAt    gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:uk_model_name_delete_at,priority:2"`
 
+	// BaseGate Capability fields
+	Domain          string `json:"domain,omitempty" gorm:"type:varchar(50)"`          // llm | video | audio | image | browser | sandbox
+	Action          string `json:"action,omitempty" gorm:"type:varchar(50)"`          // chat | generate | upscale | session | ...
+	Tier            string `json:"tier,omitempty" gorm:"type:varchar(20)"`            // standard | premium | ...
+	ExecutionMode   string `json:"execution_mode,omitempty" gorm:"type:varchar(10)"`  // sync | async | hybrid | session
+	BillingMode     string `json:"billing_mode,omitempty" gorm:"type:varchar(20)"`    // metered | per_call
+	BillableUnit    string `json:"billable_unit,omitempty" gorm:"type:varchar(20)"`   // token | second | minute | action | request
+	InputSchemaJSON string `json:"input_schema,omitempty" gorm:"type:text"`
+	OutputSchemaJSON string `json:"output_schema,omitempty" gorm:"type:text"`
+
 	BoundChannels []BoundChannel `json:"bound_channels,omitempty" gorm:"-"`
 	EnableGroups  []string       `json:"enable_groups,omitempty" gorm:"-"`
 	QuotaTypes    []int          `json:"quota_types,omitempty" gorm:"-"`

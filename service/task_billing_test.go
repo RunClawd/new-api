@@ -43,6 +43,15 @@ func TestMain(m *testing.M) {
 		&model.Log{},
 		&model.Channel{},
 		&model.UserSubscription{},
+		// BaseGate tables
+		&model.BgResponse{},
+		&model.BgResponseAttempt{},
+		&model.BgUsageRecord{},
+		&model.BgBillingRecord{},
+		&model.BgLedgerEntry{},
+		&model.BgSession{},
+		&model.BgSessionAction{},
+		&model.BgWebhookEvent{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -63,6 +72,20 @@ func truncate(t *testing.T) {
 		model.DB.Exec("DELETE FROM logs")
 		model.DB.Exec("DELETE FROM channels")
 		model.DB.Exec("DELETE FROM user_subscriptions")
+	})
+}
+
+func truncateBgTables(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		model.DB.Exec("DELETE FROM bg_responses")
+		model.DB.Exec("DELETE FROM bg_response_attempts")
+		model.DB.Exec("DELETE FROM bg_usage_records")
+		model.DB.Exec("DELETE FROM bg_billing_records")
+		model.DB.Exec("DELETE FROM bg_ledger_entries")
+		model.DB.Exec("DELETE FROM bg_sessions")
+		model.DB.Exec("DELETE FROM bg_session_actions")
+		model.DB.Exec("DELETE FROM bg_webhook_events")
 	})
 }
 

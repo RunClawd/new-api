@@ -33,7 +33,14 @@ func TestMain(m *testing.M) {
 	}
 	sqlDB.SetMaxOpenConns(1)
 
-	if err := db.AutoMigrate(&Task{}, &User{}, &Token{}, &Log{}, &Channel{}); err != nil {
+	if err := db.AutoMigrate(
+		&Task{}, &User{}, &Token{}, &Log{}, &Channel{},
+		// BaseGate tables
+		&BgResponse{}, &BgResponseAttempt{},
+		&BgUsageRecord{}, &BgBillingRecord{}, &BgLedgerEntry{},
+		&BgSession{}, &BgSessionAction{},
+		&BgWebhookEvent{},
+	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
 
