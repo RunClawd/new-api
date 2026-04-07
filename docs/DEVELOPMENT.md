@@ -175,34 +175,58 @@ GOTOOLCHAIN=auto go run main.go
 
 ## 7. 项目结构（BaseGate 相关）
 
+> 完整的 BaseGate 架构文档见 [docs/BASEGATE.md](BASEGATE.md)。
+
 ```text
 new-api/
 ├── model/
-│   ├── bg_response.go        # bg_responses 表 + 状态机枚举
-│   ├── bg_attempt.go         # bg_response_attempts 表
-│   ├── bg_billing.go         # bg_usage + bg_billing + bg_ledger 表
-│   ├── bg_session.go         # bg_sessions + bg_session_actions 表
-│   ├── bg_webhook.go         # bg_webhook_events 表
-│   ├── bg_response_test.go   # 20 个测试（CRUD + CAS + 状态）
-│   ├── model_meta.go         # Model 表（含 capability 扩展字段）
-│   └── main.go               # AutoMigrate 注册
+│   ├── bg_response.go         # Response 表 + 状态机 + CAS
+│   ├── bg_attempt.go          # Attempt 表 + CAS + pollable 查询
+│   ├── bg_billing.go          # Usage + Billing + Ledger 表
+│   ├── bg_session.go          # Session + SessionAction 表 + CAS lock
+│   ├── bg_webhook.go          # Webhook events 表 + 状态常量
+│   ├── bg_capability.go       # Capability contract 表
+│   ├── bg_audit.go            # 审计日志（异步写入）
+│   ├── bg_response_test.go    # Model 层测试
+│   └── main.go                # AutoMigrate 注册（10 张 bg_ 表）
 │
 ├── dto/
-│   ├── basegate.go           # API 层 DTO（Request/Response/Session/Model）
-│   └── basegate_test.go      # 7 个序列化测试
+│   ├── basegate.go            # API DTO（Request/Response/Session/Model/Usage/Error）
+│   └── basegate_test.go       # 序列化测试
 │
-├── relay/
-│   ├── common/
-│   │   ├── canonical.go      # 内部类型（CanonicalRequest/AdapterResult/ID 生成器）
-│   │   └── sse_event.go      # SSE 事件类型定义
-│   └── channel/
-│       └── provider_adapter.go  # ProviderAdapter + SessionCapableAdapter 接口
+├── controller/
+│   ├── bg_responses.go        # POST/GET /v1/bg/responses, POST cancel
+│   ├── bg_responses_test.go   # Controller 集成测试
+│   ├── bg_sessions.go         # POST/GET /v1/bg/sessions, POST action/close
+│   ├── bg_sessions_test.go    # Session controller 测试
+│   └── model.go               # /v1/models BaseGate capability 注入
 │
 ├── service/
-│   ├── bg_state_machine.go      # 状态机（ApplyProviderEvent）
-│   └── bg_state_machine_test.go # 17 个状态机测试
+│   ├── bg_orchestrator.go     # DispatchSync / DispatchAsync（含 fallback）
+│   ├── bg_state_machine.go    # ApplyProviderEvent + auto-advance + billing 触发
+│   ├── bg_streaming.go        # DispatchStream（SSE 生命周期）
+│   ├── bg_billing_engine.go   # FinalizeBilling（事务） + LookupPricing
+│   ├── bg_session_manager.go  # CreateSession / ExecuteAction / CloseSession
+│   ├── bg_session_worker.go   # Idle/expire 超时执行
+│   ├── bg_poll_worker.go      # 异步任务轮询
+│   ├── bg_outbox.go           # EnqueueWebhookEvent
+│   ├── bg_webhook_worker.go   # Webhook 投递 + 重试 + 退避
+│   └── *_test.go              # 各模块单元/集成测试
 │
-└── Schema/                     # 架构设计文档（只读参考）
+├── relay/
+│   ├── basegate/
+│   │   ├── provider_adapter.go     # ProviderAdapter + SessionCapableAdapter 接口
+│   │   ├── adapter_registry.go     # 1:N registry + LookupAdapters/ByName
+│   │   ├── legacy_wrapper.go       # 桥接现有 TaskAdaptors
+│   │   └── adapters/
+│   │       └── openai_llm_adapter.go  # Native OpenAI adapter（raw HTTP）
+│   ├── bg_register.go              # Adapter 注册入口
+│   └── common/
+│       ├── canonical.go            # CanonicalRequest / AdapterResult / ID 生成器
+│       └── sse_event.go            # SSE 事件类型定义
+│
+└── router/
+    └── relay-router.go        # 7 条 BaseGate 路由
 ```
 
 ---
