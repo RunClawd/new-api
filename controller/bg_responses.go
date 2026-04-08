@@ -25,6 +25,16 @@ func PostResponses(c *gin.Context) {
 		return
 	}
 
+	if req.Input == nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": "Key: 'BaseGateRequest.Input' Error:Field validation for 'Input' failed on the 'required' tag",
+			},
+		})
+		return
+	}
+
 	projectID, _ := strconv.Atoi(c.GetHeader("X-Project-Id"))
 
 	// Build canonical request

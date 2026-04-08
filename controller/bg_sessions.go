@@ -2,7 +2,6 @@ package controller
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 
@@ -33,7 +32,7 @@ func PostSessions(c *gin.Context) {
 
 	// Construct CanonicalRequest
 	canonicalReq := &relaycommon.CanonicalRequest{
-		ResponseID: fmt.Sprintf("req_%s", relaycommon.GenerateSessionID()), // Internal temp parent ID since session is async
+		ResponseID: relaycommon.GenerateResponseID(),
 		Model:      basegateReq.Model,
 		Input:      basegateReq.Input,
 		OrgID:      orgID,

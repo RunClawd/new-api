@@ -113,11 +113,28 @@ func (w *BgSessionWorker) ScanExpired() {
 			sessionAdapter.CloseSession(session.ProviderSessionID)
 		}
 
-		// Trigger Phase 3 Billing!
+		// Trigger billing
 		if err := FinalizeSessionBilling(&session); err != nil {
 			common.SysError(fmt.Sprintf("session_worker: FinalizeSessionBilling failed for expired %s: %v", session.SessionID, err))
-		} else {
-			common.SysLog(fmt.Sprintf("session_worker: session %s expired and closed (expires_at %d)", session.SessionID, session.ExpiresAt))
 		}
+
+		// Write usage summary back to session record (same as CloseSession)
+		actions, _ := model.GetBgSessionActionsBySessionID(session.SessionID)
+		var totalMinutes float64
+		if session.ClosedAt > 0 && session.CreatedAt > 0 {
+			totalMinutes = float64(session.ClosedAt-session.CreatedAt) / 60.0
+		}
+		usageSummary := map[string]interface{}{
+			"billable_units": totalMinutes,
+			"billable_unit":  "minute",
+			"input_units":    float64(len(actions)),
+			"output_units":   0,
+		}
+		usageJSON, _ := common.Marshal(usageSummary)
+		_ = model.DB.Model(&model.BgSession{}).Where("session_id = ?", session.SessionID).
+			Update("usage_json", string(usageJSON)).Error
+
+		common.SysLog(fmt.Sprintf("session_worker: session %s expired (expires_at %d, %.2f mins, %d actions)",
+			session.SessionID, session.ExpiresAt, totalMinutes, len(actions)))
 	}
 }

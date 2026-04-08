@@ -132,7 +132,7 @@ func CreateSession(req *relaycommon.CanonicalRequest) (*dto.BGSessionResponse, e
 func GetSession(sessionID string) (*dto.BGSessionResponse, error) {
 	bgSess, err := model.GetBgSessionBySessionID(sessionID)
 	if err != nil {
-		return nil, fmt.Errorf("session not found: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrSessionNotFound, err)
 	}
 	return buildSessionResponseFromDB(bgSess)
 }
@@ -240,17 +240,11 @@ func ExecuteSessionAction(sessionID string, req *dto.BGSessionActionRequest) (*d
 func CloseSession(sessionID string) (*dto.BGSessionResponse, error) {
 	bgSess, err := model.GetBgSessionBySessionID(sessionID)
 	if err != nil {
-		return nil, fmt.Errorf("session not found: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrSessionNotFound, err)
 	}
 
 	if bgSess.Status.IsTerminal() {
 		return buildSessionResponseFromDB(bgSess)
-	}
-
-	// Protect against multiple closures
-	if bgSess.Status == model.BgSessionStatusExpired {
-		// Wait, if it's already expired, getting here means we still want to finalize it.
-		// Actually expired is terminal. If it was idle and we're expiring it, we use Expired.
 	}
 
 	// Call provider if we have an active session
@@ -267,10 +261,26 @@ func CloseSession(sessionID string) (*dto.BGSessionResponse, error) {
 		return GetSession(sessionID)
 	}
 
-	// Trigger Phase 3 Billing!
+	// Trigger billing + write usage back to session for API response
 	if err := FinalizeSessionBilling(bgSess); err != nil {
 		common.SysLog(fmt.Sprintf("session_manager: FinalizeSessionBilling failed for %s: %v", sessionID, err))
 	}
+
+	// Calculate and persist usage summary on session record
+	actions, _ := model.GetBgSessionActionsBySessionID(sessionID)
+	var totalMinutes float64
+	if bgSess.ClosedAt > 0 && bgSess.CreatedAt > 0 {
+		totalMinutes = float64(bgSess.ClosedAt-bgSess.CreatedAt) / 60.0
+	}
+	usageSummary := map[string]interface{}{
+		"billable_units": totalMinutes,
+		"billable_unit":  "minute",
+		"input_units":    float64(len(actions)),
+		"output_units":   0,
+	}
+	usageJSON, _ := common.Marshal(usageSummary)
+	_ = model.DB.Model(&model.BgSession{}).Where("id = ?", bgSess.ID).
+		Update("usage_json", string(usageJSON)).Error
 	
 	// Phase 4 Webhook Outbox
 	if bgSess.WebhookURL != "" {
@@ -305,12 +315,17 @@ func buildSessionResponseFromDB(bgSess *model.BgSession) (*dto.BGSessionResponse
 	}
 
 	resp := &dto.BGSessionResponse{
-		ID:        bgSess.SessionID,
-		Object:    "session",
-		Status:    string(bgSess.Status),
-		Model:     bgSess.Model,
-		CreatedAt: bgSess.CreatedAt,
-		ExpiresAt: bgSess.ExpiresAt,
+		ID:             bgSess.SessionID,
+		Object:         "session",
+		Status:         string(bgSess.Status),
+		Model:          bgSess.Model,
+		ResponseID:     bgSess.ResponseID,
+		CreatedAt:      bgSess.CreatedAt,
+		ExpiresAt:      bgSess.ExpiresAt,
+		IdleTimeoutSec: bgSess.IdleTimeoutSec,
+		MaxDurationSec: bgSess.MaxDurationSec,
+		LastActionAt:   bgSess.LastActionAt,
+		ClosedAt:       bgSess.ClosedAt,
 	}
 
 	if bgSess.UsageJSON != "" {
@@ -318,9 +333,6 @@ func buildSessionResponseFromDB(bgSess *model.BgSession) (*dto.BGSessionResponse
 		_ = common.UnmarshalJsonStr(bgSess.UsageJSON, &u)
 		resp.Usage = &u
 	}
-
-	// Config could be returned in future.
-
 
 	return resp, nil
 }

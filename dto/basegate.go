@@ -3,7 +3,7 @@ package dto
 // BaseGateRequest is the API-facing request body for POST /v1/responses.
 type BaseGateRequest struct {
 	Model            string                 `json:"model" binding:"required"`
-	Input            interface{}            `json:"input" binding:"required"`
+	Input            interface{}            `json:"input"`
 	ExecutionOptions *BGExecutionOptions    `json:"execution_options,omitempty"`
 	ResponseFormat   *BGResponseFormat      `json:"response_format,omitempty"`
 	Metadata         map[string]string      `json:"metadata,omitempty"`

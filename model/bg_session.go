@@ -128,9 +128,10 @@ func (s *BgSession) CASUpdateStatus(expectedStatus BgSessionStatus, expectedVers
 		"status_version": expectedVersion + 1,
 	}
 
+	var closedAt int64
 	if targetStatus.IsTerminal() && s.ClosedAt == 0 {
-		s.ClosedAt = time.Now().Unix()
-		updates["closed_at"] = s.ClosedAt
+		closedAt = time.Now().Unix()
+		updates["closed_at"] = closedAt
 	}
 
 	result := DB.Model(&BgSession{}).
@@ -143,8 +144,12 @@ func (s *BgSession) CASUpdateStatus(expectedStatus BgSessionStatus, expectedVers
 	if result.RowsAffected == 0 {
 		return false, nil
 	}
+	// Only mutate the receiver after a successful CAS write
 	s.Status = targetStatus
 	s.StatusVersion = expectedVersion + 1
+	if closedAt > 0 {
+		s.ClosedAt = closedAt
+	}
 	return true, nil
 }
 
