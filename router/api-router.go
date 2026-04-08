@@ -254,6 +254,7 @@ func SetApiRouter(router *gin.Engine) {
 			bgAdminRoute.POST("/responses/:id/cancel", controller.AdminCancelBgResponse)
 			bgAdminRoute.GET("/sessions", controller.AdminListBgSessions)
 			bgAdminRoute.GET("/sessions/:id", controller.AdminGetBgSession)
+			bgAdminRoute.POST("/sessions/:id/close", controller.AdminCloseBgSession)
 			bgAdminRoute.GET("/capabilities", controller.AdminListBgCapabilities)
 			bgAdminRoute.GET("/usage/stats", controller.AdminGetBgUsageStats)
 			bgAdminRoute.GET("/projects", controller.AdminListBgProjects)
@@ -263,6 +264,8 @@ func SetApiRouter(router *gin.Engine) {
 			bgAdminRoute.GET("/adapters", controller.AdminListBgAdapters)
 			bgAdminRoute.POST("/adapters/reload", controller.AdminReloadBgAdapters)
 			bgAdminRoute.POST("/adapters/:name/reset", controller.AdminResetBgCircuit)
+			bgAdminRoute.GET("/billing/records", controller.AdminListBgBillingRecords)
+			bgAdminRoute.GET("/billing/ledger", controller.AdminListBgLedgerEntries)
 		}
 
 		tokenRoute := apiRouter.Group("/token")

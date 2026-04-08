@@ -53,6 +53,9 @@ const routerMap = {
   bgResponses: '/console/bg-responses',
   bgCapabilities: '/console/bg-capabilities',
   bgAdapters: '/console/bg-adapters',
+  bgSessions: '/console/bg-sessions',
+  bgProjects: '/console/bg-projects',
+  bgBilling: '/console/bg-billing',
 };
 
 const SiderBar = ({ onNavigate = () => {} }) => {
@@ -216,6 +219,24 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         text: t('BaseGate 适配器'),
         itemKey: 'bgAdapters',
         to: '/bg-adapters',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('BaseGate 会话'),
+        itemKey: 'bgSessions',
+        to: '/bg-sessions',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('BaseGate 项目'),
+        itemKey: 'bgProjects',
+        to: '/bg-projects',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('BaseGate 计费'),
+        itemKey: 'bgBilling',
+        to: '/bg-billing',
         className: isAdmin() ? '' : 'tableHiddle',
       },
     ];

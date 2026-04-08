@@ -33,11 +33,14 @@ func GetBgResponsesAdmin(orgID int, modelName, status, keyword string, startTime
 }
 
 // GetBgSessionsAdmin fetches a paginated list of BgSessions.
-func GetBgSessionsAdmin(orgID int, status string, startTimestamp, endTimestamp int64, startIdx, num int) (sessions []*BgSession, total int64, err error) {
+func GetBgSessionsAdmin(orgID int, modelName, status string, startTimestamp, endTimestamp int64, startIdx, num int) (sessions []*BgSession, total int64, err error) {
 	tx := DB.Model(&BgSession{})
 
 	if orgID > 0 {
 		tx = tx.Where("org_id = ?", orgID)
+	}
+	if modelName != "" {
+		tx = tx.Where("model = ?", modelName)
 	}
 	if status != "" {
 		tx = tx.Where("status = ?", status)
@@ -122,4 +125,56 @@ func GetBgUsageStatsAdmin(orgID int) (*BgUsageStatsResult, error) {
 	}
 
 	return &res, nil
+}
+
+// GetBgBillingRecordsAdmin fetches a paginated list of BgBillingRecords.
+func GetBgBillingRecordsAdmin(orgID int, modelName, responseID string, startTimestamp, endTimestamp int64, startIdx, num int) (records []*BgBillingRecord, total int64, err error) {
+	tx := DB.Model(&BgBillingRecord{})
+
+	if orgID > 0 {
+		tx = tx.Where("org_id = ?", orgID)
+	}
+	if modelName != "" {
+		tx = tx.Where("model = ?", modelName)
+	}
+	if responseID != "" {
+		tx = tx.Where("response_id = ?", responseID)
+	}
+	if startTimestamp > 0 {
+		tx = tx.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp > 0 {
+		tx = tx.Where("created_at <= ?", endTimestamp)
+	}
+
+	err = tx.Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	err = tx.Order("id desc").Limit(num).Offset(startIdx).Find(&records).Error
+	return records, total, err
+}
+
+// GetBgLedgerEntriesAdmin fetches a paginated list of BgLedgerEntries.
+func GetBgLedgerEntriesAdmin(orgID int, startTimestamp, endTimestamp int64, startIdx, num int) (entries []*BgLedgerEntry, total int64, err error) {
+	tx := DB.Model(&BgLedgerEntry{})
+
+	if orgID > 0 {
+		tx = tx.Where("org_id = ?", orgID)
+	}
+	if startTimestamp > 0 {
+		tx = tx.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp > 0 {
+		tx = tx.Where("created_at <= ?", endTimestamp)
+	}
+
+	err = tx.Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	err = tx.Order("id desc").Limit(num).Offset(startIdx).Find(&entries).Error
+	return entries, total, err
 }

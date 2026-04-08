@@ -53,6 +53,9 @@ import BgUsagePage from './pages/BgUsage';
 import BgResponsesPage from './pages/BgResponses';
 import BgCapabilitiesPage from './pages/BgCapabilities';
 import BgAdaptersPage from './pages/BgAdapters';
+import BgSessionsPage from './pages/BgSessions';
+import BgProjectsPage from './pages/BgProjects';
+import BgBillingPage from './pages/BgBilling';
 
 const Home = lazy(() => import('./pages/Home'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -410,6 +413,30 @@ function App() {
           element={
             <AdminRoute>
               <BgAdaptersPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/bg-sessions'
+          element={
+            <AdminRoute>
+              <BgSessionsPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/bg-projects'
+          element={
+            <AdminRoute>
+              <BgProjectsPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/bg-billing'
+          element={
+            <AdminRoute>
+              <BgBillingPage />
             </AdminRoute>
           }
         />

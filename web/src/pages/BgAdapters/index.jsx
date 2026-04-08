@@ -152,7 +152,7 @@ export default function BgAdaptersPage() {
   ];
 
   return (
-    <div style={{ padding: '24px', maxWidth: 1400, margin: '60px auto 0' }}>
+    <div style={{ padding: '24px', maxWidth: 1400, margin: '64px auto 0' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
           <Title heading={4} style={{ margin: 0 }}>{t('BaseGate 适配器')}</Title>

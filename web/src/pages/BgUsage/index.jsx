@@ -81,7 +81,7 @@ export default function BgUsagePage() {
   };
 
   return (
-    <div style={{ padding: '24px', maxWidth: 1400, margin: '60px auto 0' }}>
+    <div style={{ padding: '24px', maxWidth: 1400, margin: '64px auto 0' }}>
       <div style={{ marginBottom: 20 }}>
         <Title heading={4} style={{ margin: 0 }}>
           {t('BaseGate 用量概览')}

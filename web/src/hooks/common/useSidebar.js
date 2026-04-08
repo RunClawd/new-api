@@ -57,6 +57,9 @@ export const DEFAULT_ADMIN_CONFIG = {
     bgResponses: true,
     bgCapabilities: true,
     bgAdapters: true,
+    bgSessions: true,
+    bgProjects: true,
+    bgBilling: true,
   },
 };
 

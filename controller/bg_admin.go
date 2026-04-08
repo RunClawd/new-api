@@ -124,11 +124,12 @@ func AdminListBgSessions(c *gin.Context) {
 	num := pageInfo.GetPageSize()
 
 	orgID, _ := strconv.Atoi(c.Query("org_id"))
+	modelName := c.Query("model")
 	status := c.Query("status")
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 
-	sessions, total, err := model.GetBgSessionsAdmin(orgID, status, startTimestamp, endTimestamp, startIdx, num)
+	sessions, total, err := model.GetBgSessionsAdmin(orgID, modelName, status, startTimestamp, endTimestamp, startIdx, num)
 	if err != nil {
 		common.ApiErrorMsg(c, "Failed to list sessions: "+err.Error())
 		return
@@ -163,6 +164,23 @@ func AdminGetBgSession(c *gin.Context) {
 	detail.Actions = actions
 
 	common.ApiSuccess(c, detail)
+}
+
+// AdminCloseBgSession handles POST /api/bg/sessions/:id/close
+func AdminCloseBgSession(c *gin.Context) {
+	sessionID := c.Param("id")
+	if sessionID == "" {
+		common.ApiErrorMsg(c, "session_id is required")
+		return
+	}
+
+	_, err := service.CloseSession(sessionID)
+	if err != nil {
+		common.ApiErrorMsg(c, "Failed to close session: "+err.Error())
+		return
+	}
+
+	common.ApiSuccess(c, "ok")
 }
 
 // AdminListBgCapabilities handles GET /api/bg/capabilities
@@ -264,4 +282,48 @@ func AdminResetBgCircuit(c *gin.Context) {
 		"message": "circuit reset to closed",
 		"adapter": adapterName,
 	})
+}
+
+// AdminListBgBillingRecords handles GET /api/bg/billing/records
+func AdminListBgBillingRecords(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	startIdx := pageInfo.GetStartIdx()
+	num := pageInfo.GetPageSize()
+
+	orgID, _ := strconv.Atoi(c.Query("org_id"))
+	modelName := c.Query("model")
+	responseID := c.Query("response_id")
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+
+	records, total, err := model.GetBgBillingRecordsAdmin(orgID, modelName, responseID, startTimestamp, endTimestamp, startIdx, num)
+	if err != nil {
+		common.ApiErrorMsg(c, "Failed to list billing records: "+err.Error())
+		return
+	}
+
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(records)
+	common.ApiSuccess(c, pageInfo)
+}
+
+// AdminListBgLedgerEntries handles GET /api/bg/billing/ledger
+func AdminListBgLedgerEntries(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	startIdx := pageInfo.GetStartIdx()
+	num := pageInfo.GetPageSize()
+
+	orgID, _ := strconv.Atoi(c.Query("org_id"))
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+
+	entries, total, err := model.GetBgLedgerEntriesAdmin(orgID, startTimestamp, endTimestamp, startIdx, num)
+	if err != nil {
+		common.ApiErrorMsg(c, "Failed to list ledger entries: "+err.Error())
+		return
+	}
+
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(entries)
+	common.ApiSuccess(c, pageInfo)
 }

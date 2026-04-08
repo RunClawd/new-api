@@ -116,7 +116,7 @@ export default function BgCapabilitiesPage() {
   ];
 
   return (
-    <div style={{ padding: '24px', maxWidth: 1400, margin: '60px auto 0' }}>
+    <div style={{ padding: '24px', maxWidth: 1400, margin: '64px auto 0' }}>
       <div style={{ marginBottom: 20 }}>
         <Title heading={4} style={{ margin: 0 }}>{t('BaseGate 能力管理')}</Title>
         <Text type='tertiary' size='small'>{t('已注册的 BaseGate 能力合约，数据来源于能力种子和注册接口')}</Text>

@@ -78,6 +78,9 @@ import {
   Activity,
   Cpu,
   ScrollText,
+  Briefcase,
+  Timer,
+  Receipt,
 } from 'lucide-react';
 import {
   SiAtlassian,
@@ -158,6 +161,12 @@ export function getLucideIcon(key, selected = false) {
       return <Cpu {...commonProps} color={iconColor} />;
     case 'bgAdapters':
       return <Server {...commonProps} color={iconColor} />;
+    case 'bgSessions':
+      return <Timer {...commonProps} color={iconColor} />;
+    case 'bgProjects':
+      return <Briefcase {...commonProps} color={iconColor} />;
+    case 'bgBilling':
+      return <Receipt {...commonProps} color={iconColor} />;
     default:
       return <CircleUser {...commonProps} color={iconColor} />;
   }
