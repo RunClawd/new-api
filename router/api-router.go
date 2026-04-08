@@ -259,6 +259,9 @@ func SetApiRouter(router *gin.Engine) {
 			bgAdminRoute.POST("/projects", controller.AdminCreateBgProject)
 			bgAdminRoute.PUT("/projects/:id", controller.AdminUpdateBgProject)
 			bgAdminRoute.DELETE("/projects/:id", controller.AdminDeleteBgProject)
+			bgAdminRoute.GET("/adapters", controller.AdminListBgAdapters)
+			bgAdminRoute.POST("/adapters/reload", controller.AdminReloadBgAdapters)
+			bgAdminRoute.POST("/adapters/:name/reset", controller.AdminResetBgCircuit)
 		}
 
 		tokenRoute := apiRouter.Group("/token")

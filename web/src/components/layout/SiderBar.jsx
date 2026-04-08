@@ -52,6 +52,7 @@ const routerMap = {
   bgUsage: '/console/bg-usage',
   bgResponses: '/console/bg-responses',
   bgCapabilities: '/console/bg-capabilities',
+  bgAdapters: '/console/bg-adapters',
 };
 
 const SiderBar = ({ onNavigate = () => {} }) => {
@@ -209,6 +210,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         text: t('BaseGate 能力'),
         itemKey: 'bgCapabilities',
         to: '/bg-capabilities',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('BaseGate 适配器'),
+        itemKey: 'bgAdapters',
+        to: '/bg-adapters',
         className: isAdmin() ? '' : 'tableHiddle',
       },
     ];

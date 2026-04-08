@@ -70,6 +70,15 @@ func itoa(n int) string {
 	return string(b)
 }
 
+// ReloadNativeAdapters clears the registry and re-registers all native adapters from the database.
+// Safe to call at runtime (e.g. when channels are added/modified via the admin UI).
+func ReloadNativeAdapters() {
+	basegate.ClearRegistry()
+	RegisterAllLegacyTaskAdaptors()
+	RegisterNativeAdapters()
+	common.SysLog(fmt.Sprintf("bg_reload: registry reloaded — %d adapters total", basegate.RegisteredAdapterCount()))
+}
+
 // RegisterNativeAdapters dynamically initializes Native Adapters from the database.
 func RegisterNativeAdapters() {
 	// --- OpenAI LLM adapters ---

@@ -5,6 +5,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/relay/basegate"
 	"github.com/gin-gonic/gin"
 )
@@ -181,5 +182,67 @@ func AdminGetBgUsageStats(c *gin.Context) {
 		TotalTokens:    res.TotalTokens,
 		TotalCost:      res.TotalCost,
 		Adapters:       basegate.ListCircuitStates(),
+	})
+}
+
+// AdminListBgAdapters handles GET /api/bg/adapters
+// Returns all registered BaseGate adapters with their capabilities and circuit breaker state.
+func AdminListBgAdapters(c *gin.Context) {
+	adapters := basegate.ListRegisteredAdapters()
+	circuits := basegate.ListCircuitStates()
+
+	// Build a circuit state lookup for merging
+	circuitMap := make(map[string]basegate.AdapterCircuitInfo)
+	for _, ci := range circuits {
+		circuitMap[ci.Name] = ci
+	}
+
+	type AdapterDetail struct {
+		basegate.AdapterInfo
+		CircuitState         string `json:"circuit_state"`
+		FailureCount         int    `json:"failure_count"`
+		CooldownRemainingSec int64  `json:"cooldown_remaining_sec,omitempty"`
+	}
+
+	result := make([]AdapterDetail, 0, len(adapters))
+	for _, a := range adapters {
+		d := AdapterDetail{
+			AdapterInfo:  a,
+			CircuitState: basegate.CircuitClosed,
+		}
+		if ci, ok := circuitMap[a.Name]; ok {
+			d.CircuitState = ci.State
+			d.FailureCount = ci.FailureCount
+			d.CooldownRemainingSec = ci.CooldownRemainingSec
+		}
+		result = append(result, d)
+	}
+
+	common.ApiSuccess(c, result)
+}
+
+// AdminReloadBgAdapters handles POST /api/bg/adapters/reload
+// Clears and re-registers all adapters from the Channel table. No restart required.
+func AdminReloadBgAdapters(c *gin.Context) {
+	relay.ReloadNativeAdapters()
+	count := basegate.RegisteredAdapterCount()
+	common.ApiSuccess(c, gin.H{
+		"message":       "adapter registry reloaded",
+		"adapter_count": count,
+	})
+}
+
+// AdminResetBgCircuit handles POST /api/bg/adapters/:name/reset
+// Manually resets an adapter's circuit breaker to CLOSED.
+func AdminResetBgCircuit(c *gin.Context) {
+	adapterName := c.Param("name")
+	if adapterName == "" {
+		common.ApiErrorMsg(c, "adapter name is required")
+		return
+	}
+	basegate.ResetCircuit(adapterName)
+	common.ApiSuccess(c, gin.H{
+		"message": "circuit reset to closed",
+		"adapter": adapterName,
 	})
 }

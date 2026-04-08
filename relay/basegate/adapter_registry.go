@@ -141,6 +141,49 @@ func RegisteredAdapterCount() int {
 	return len(nameMap)
 }
 
+// AdapterInfo is a JSON-serialisable summary of a registered adapter for admin display.
+type AdapterInfo struct {
+	Name         string   `json:"name"`
+	Capabilities []string `json:"capabilities"`
+	Provider     string   `json:"provider,omitempty"`
+}
+
+// ListRegisteredAdapters returns a summary of all registered adapters with their capabilities.
+func ListRegisteredAdapters() []AdapterInfo {
+	adapterRegistryMu.RLock()
+	defer adapterRegistryMu.RUnlock()
+
+	// Build reverse map: adapter name → capabilities
+	adapterCaps := make(map[string][]string)
+	adapterProvider := make(map[string]string)
+	for capName, was := range capabilityMap {
+		for _, wa := range was {
+			name := wa.Adapter.Name()
+			adapterCaps[name] = append(adapterCaps[name], capName)
+		}
+	}
+	// Get provider from first capability binding
+	for _, adapter := range nameMap {
+		caps := adapter.DescribeCapabilities()
+		if len(caps) > 0 {
+			adapterProvider[adapter.Name()] = caps[0].Provider
+		}
+	}
+
+	result := make([]AdapterInfo, 0, len(nameMap))
+	for name := range nameMap {
+		caps := adapterCaps[name]
+		sort.Strings(caps)
+		result = append(result, AdapterInfo{
+			Name:         name,
+			Capabilities: caps,
+			Provider:     adapterProvider[name],
+		})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result
+}
+
 func ClearRegistry() {
 	adapterRegistryMu.Lock()
 	defer adapterRegistryMu.Unlock()

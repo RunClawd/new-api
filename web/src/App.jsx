@@ -52,6 +52,7 @@ import SetupCheck from './components/layout/SetupCheck';
 import BgUsagePage from './pages/BgUsage';
 import BgResponsesPage from './pages/BgResponses';
 import BgCapabilitiesPage from './pages/BgCapabilities';
+import BgAdaptersPage from './pages/BgAdapters';
 
 const Home = lazy(() => import('./pages/Home'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -401,6 +402,14 @@ function App() {
           element={
             <AdminRoute>
               <BgCapabilitiesPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/bg-adapters'
+          element={
+            <AdminRoute>
+              <BgAdaptersPage />
             </AdminRoute>
           }
         />

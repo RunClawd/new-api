@@ -156,6 +156,8 @@ export function getLucideIcon(key, selected = false) {
       return <ScrollText {...commonProps} color={iconColor} />;
     case 'bgCapabilities':
       return <Cpu {...commonProps} color={iconColor} />;
+    case 'bgAdapters':
+      return <Server {...commonProps} color={iconColor} />;
     default:
       return <CircleUser {...commonProps} color={iconColor} />;
   }
@@ -339,6 +341,8 @@ export function getChannelIcon(channelType) {
     case 1: // OpenAI
     case 3: // Azure OpenAI
     case 57: // Codex
+      return <OpenAI size={iconSize} />;
+    case 58: // E2B Sandbox
       return <OpenAI size={iconSize} />;
     case 2: // Midjourney Proxy
     case 5: // Midjourney Proxy Plus

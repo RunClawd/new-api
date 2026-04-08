@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Typography } from '@douyinfe/semi-ui';
+import { Card, Tag, Typography } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import { useBgUsageData } from '../../hooks/bg-usage/useBgUsageData';
 import BgUsageStats from '../../components/table/bg-usage/BgUsageStats';
@@ -50,6 +50,23 @@ export default function BgUsagePage() {
 
       {/* KPI Cards */}
       <BgUsageStats stats={stats} loading={statsLoading} />
+
+      {/* Adapter Health Strip */}
+      {stats?.adapters?.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
+          {stats.adapters.map((a) => (
+            <Tag
+              key={a.name}
+              color={a.state === 'closed' ? 'green' : a.state === 'open' ? 'red' : 'orange'}
+              size='large'
+              style={{ borderRadius: 8, padding: '4px 12px' }}
+            >
+              {a.name}
+              {a.state !== 'closed' && ` (${a.state}${a.failure_count ? ` ×${a.failure_count}` : ''})`}
+            </Tag>
+          ))}
+        </div>
+      )}
 
       {/* Table Card */}
       <Card

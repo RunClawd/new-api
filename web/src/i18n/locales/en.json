@@ -3440,6 +3440,23 @@
     "可取消": "Cancelable",
     "启用": "Active",
     "停用": "Inactive",
-    "暂无能力数据，请确保已执行 SeedBgCapabilities": "No capability data. Please ensure SeedBgCapabilities has run."
+    "暂无能力数据，请确保已执行 SeedBgCapabilities": "No capability data. Please ensure SeedBgCapabilities has run.",
+
+    "BaseGate 适配器": "BG Adapters",
+    "已注册的 BaseGate 提供商适配器及其熔断器状态": "Registered BaseGate provider adapters and their circuit breaker status",
+    "适配器名称": "Adapter Name",
+    "提供商": "Provider",
+    "能力绑定": "Capability Bindings",
+    "熔断器状态": "Circuit State",
+    "失败次数": "Failures",
+    "冷却剩余": "Cooldown Left",
+    "重载注册表": "Reload Registry",
+    "适配器注册表已重载": "Adapter registry reloaded",
+    "重载失败": "Reload failed",
+    "重置熔断器": "Reset Circuit Breaker",
+    "确认重置": "Confirm reset",
+    "的熔断器状态为 Closed？": "circuit breaker to Closed?",
+    "重置失败": "Reset failed",
+    "暂无适配器注册": "No adapters registered"
   }
 }
