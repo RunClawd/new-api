@@ -317,6 +317,14 @@ func migrateDB() error {
 			return err
 		}
 	}
+
+	// Seed BaseGate capability definitions (idempotent upsert — safe to run on every startup)
+	if err := SeedBgCapabilities(); err != nil {
+		common.SysError("failed to seed bg capabilities: " + err.Error())
+	} else {
+		common.SysLog("bg capabilities seeded")
+	}
+
 	return nil
 }
 
