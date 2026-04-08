@@ -58,7 +58,7 @@ export function useBgUsageData() {
       });
       if (model) params.set('model', model);
 
-      const res = await API.get(`/v1/bg/usage?${params}`);
+      const res = await API.get(`/api/bg/usage?${params}`);
       if (res.data?.success !== false) {
         // The usage API returns an array directly or wrapped
         const data = res.data?.data ?? res.data;

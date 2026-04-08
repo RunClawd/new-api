@@ -256,6 +256,7 @@ func SetApiRouter(router *gin.Engine) {
 			bgAdminRoute.GET("/sessions/:id", controller.AdminGetBgSession)
 			bgAdminRoute.POST("/sessions/:id/close", controller.AdminCloseBgSession)
 			bgAdminRoute.GET("/capabilities", controller.AdminListBgCapabilities)
+			bgAdminRoute.GET("/usage", controller.AdminListBgUsage)
 			bgAdminRoute.GET("/usage/stats", controller.AdminGetBgUsageStats)
 			bgAdminRoute.GET("/projects", controller.AdminListBgProjects)
 			bgAdminRoute.POST("/projects", controller.AdminCreateBgProject)
