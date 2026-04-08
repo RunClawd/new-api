@@ -17,7 +17,24 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
+// BaseGate-supported channel types only (for smoke testing).
+// To restore all channels, see _ALL_CHANNEL_OPTIONS below.
 export const CHANNEL_OPTIONS = [
+  { value: 1, color: 'green', label: 'OpenAI' },
+  {
+    value: 50,
+    color: 'green',
+    label: '可灵',
+  },
+  {
+    value: 58,
+    color: 'teal',
+    label: 'E2B Sandbox',
+  },
+];
+
+// Full channel list (hidden during basegate smoke testing)
+export const _ALL_CHANNEL_OPTIONS = [
   { value: 1, color: 'green', label: 'OpenAI' },
   {
     value: 2,
@@ -188,6 +205,11 @@ export const CHANNEL_OPTIONS = [
     value: 57,
     color: 'blue',
     label: 'Codex (OpenAI OAuth)',
+  },
+  {
+    value: 58,
+    color: 'teal',
+    label: 'E2B Sandbox',
   },
 ];
 

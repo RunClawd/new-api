@@ -106,6 +106,14 @@ func init() {
 		adaptor.Init(meta)
 		channelId2Models[i] = adaptor.GetModelList()
 	}
+	// BaseGate-only channel types bypass the legacy relay adaptor system,
+	// so their models must be registered explicitly.
+	channelId2Models[constant.ChannelTypeE2B] = []string{"bg.sandbox.session.standard"}
+	channelId2Models[constant.ChannelTypeKling] = []string{
+		"bg.video.generate.standard",
+		"bg.video.generate.pro",
+		"kling-v1", "kling-v1-6", "kling-v2-master",
+	}
 	openAIModels = lo.UniqBy(openAIModels, func(m dto.OpenAIModels) string {
 		return m.Id
 	})

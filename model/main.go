@@ -248,6 +248,12 @@ func InitLogDB() (err error) {
 }
 
 func migrateDB() error {
+	// SQLite DDL fixup: GORM's SQLite migrator cannot parse decimal(N,M) or json
+	// column types in existing table DDL. Replace them before running AutoMigrate.
+	if common.UsingSQLite {
+		fixSQLiteDDL()
+	}
+
 	// Migrate price_amount column from float/double to decimal for existing tables
 	migrateSubscriptionPlanPriceAmount()
 	// Migrate model_limits column from varchar to text for existing tables
@@ -255,46 +261,52 @@ func migrateDB() error {
 		return err
 	}
 
-	err := DB.AutoMigrate(
-		&Channel{},
-		&Token{},
-		&User{},
-		&PasskeyCredential{},
-		&Option{},
-		&Redemption{},
-		&Ability{},
-		&Log{},
-		&Midjourney{},
-		&TopUp{},
-		&QuotaData{},
-		&Task{},
-		&Model{},
-		&Vendor{},
-		&PrefillGroup{},
-		&Setup{},
-		&TwoFA{},
-		&TwoFABackupCode{},
-		&Checkin{},
-		&SubscriptionOrder{},
-		&UserSubscription{},
-		&SubscriptionPreConsumeRecord{},
-		&CustomOAuthProvider{},
-		&UserOAuthBinding{},
+	migrationModels := []struct {
+		name  string
+		model interface{}
+	}{
+		{"Channel", &Channel{}},
+		{"Token", &Token{}},
+		{"User", &User{}},
+		{"PasskeyCredential", &PasskeyCredential{}},
+		{"Option", &Option{}},
+		{"Redemption", &Redemption{}},
+		{"Ability", &Ability{}},
+		{"Log", &Log{}},
+		{"Midjourney", &Midjourney{}},
+		{"TopUp", &TopUp{}},
+		{"QuotaData", &QuotaData{}},
+		{"Task", &Task{}},
+		{"Model", &Model{}},
+		{"Vendor", &Vendor{}},
+		{"PrefillGroup", &PrefillGroup{}},
+		{"Setup", &Setup{}},
+		{"TwoFA", &TwoFA{}},
+		{"TwoFABackupCode", &TwoFABackupCode{}},
+		{"Checkin", &Checkin{}},
+		{"SubscriptionOrder", &SubscriptionOrder{}},
+		{"UserSubscription", &UserSubscription{}},
+		{"SubscriptionPreConsumeRecord", &SubscriptionPreConsumeRecord{}},
+		{"CustomOAuthProvider", &CustomOAuthProvider{}},
+		{"UserOAuthBinding", &UserOAuthBinding{}},
 		// BaseGate tables
-		&BgResponse{},
-		&BgResponseAttempt{},
-		&BgUsageRecord{},
-		&BgBillingRecord{},
-		&BgLedgerEntry{},
-		&BgSession{},
-		&BgSessionAction{},
-		&BgWebhookEvent{},
-		&BgCapability{},
-		&BgAuditLog{},
-		&BgProject{},
-	)
-	if err != nil {
-		return err
+		{"BgResponse", &BgResponse{}},
+		{"BgResponseAttempt", &BgResponseAttempt{}},
+		{"BgUsageRecord", &BgUsageRecord{}},
+		{"BgBillingRecord", &BgBillingRecord{}},
+		{"BgLedgerEntry", &BgLedgerEntry{}},
+		{"BgSession", &BgSession{}},
+		{"BgSessionAction", &BgSessionAction{}},
+		{"BgWebhookEvent", &BgWebhookEvent{}},
+		{"BgCapability", &BgCapability{}},
+		{"BgAuditLog", &BgAuditLog{}},
+		{"BgProject", &BgProject{}},
+	}
+	for _, m := range migrationModels {
+		if err := DB.AutoMigrate(m.model); err != nil {
+			common.SysError(fmt.Sprintf("migration failed for %s: %v", m.name, err))
+			return fmt.Errorf("migration failed for %s: %w", m.name, err)
+		}
 	}
 	if common.UsingSQLite {
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {
@@ -397,6 +409,34 @@ func migrateLOGDB() error {
 type sqliteColumnDef struct {
 	Name string
 	DDL  string
+}
+
+// fixSQLiteDDL rewrites problematic column types in sqlite_master that cause
+// GORM's DDL parser to fail with "invalid DDL, unbalanced brackets".
+// - decimal(N,M) → real  (parentheses confuse the bracket counter)
+// - json         → text  (not a valid SQLite type; breaks ALTER TABLE detection)
+// This is idempotent and safe to run on every startup.
+func fixSQLiteDDL() {
+	replacements := []struct{ old, new string }{
+		{"decimal(20,6)", "real"},
+		{"decimal(20,10)", "real"},
+		{"decimal(10,6)", "real"},
+		{"decimal(10,2)", "real"},
+		{" json,", " text,"},    // column type in middle of DDL
+		{" json)", " text)"},    // column type at end of DDL
+	}
+	DB.Exec("PRAGMA writable_schema = ON")
+	for _, r := range replacements {
+		result := DB.Exec(
+			"UPDATE sqlite_master SET sql = REPLACE(sql, ?, ?) WHERE sql LIKE ? AND type = 'table'",
+			r.old, r.new, "%"+r.old+"%",
+		)
+		if result.RowsAffected > 0 {
+			common.SysLog(fmt.Sprintf("sqlite_ddl_fix: replaced %q → %q in %d table(s)", r.old, r.new, result.RowsAffected))
+		}
+	}
+	DB.Exec("PRAGMA writable_schema = OFF")
+	DB.Exec("PRAGMA integrity_check")
 }
 
 func ensureSubscriptionPlanTableSQLite() error {

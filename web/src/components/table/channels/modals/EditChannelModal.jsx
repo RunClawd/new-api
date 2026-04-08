@@ -612,6 +612,25 @@ const EditChannelModal = (props) => {
     if (name === 'type') {
       let localModels = [];
       switch (value) {
+        case 1:
+          // OpenAI: only show the latest model per series for a cleaner dropdown
+          localModels = [
+            'gpt-4o',
+            'gpt-4o-mini',
+            'gpt-4.1',
+            'gpt-4.1-mini',
+            'gpt-4.1-nano',
+            'o3',
+            'o3-pro',
+            'o4-mini',
+            'gpt-image-1',
+            'dall-e-3',
+            'tts-1-hd',
+            'whisper-1',
+            'text-embedding-3-large',
+            'text-embedding-3-small',
+          ];
+          break;
         case 2:
           localModels = [
             'mj_imagine',
@@ -647,6 +666,15 @@ const EditChannelModal = (props) => {
           break;
         case 36:
           localModels = ['suno_music', 'suno_lyrics'];
+          break;
+        case 50:
+          localModels = [
+            'bg.video.generate.pro',
+            'bg.video.generate.standard',
+          ];
+          break;
+        case 58:
+          localModels = ['bg.sandbox.session.standard'];
           break;
         case 45:
           localModels = getChannelModels(value);

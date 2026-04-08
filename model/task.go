@@ -10,6 +10,9 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 type TaskStatus string
@@ -58,11 +61,11 @@ type Task struct {
 	StartTime  int64                 `json:"start_time" gorm:"index"`
 	FinishTime int64                 `json:"finish_time" gorm:"index"`
 	Progress   string                `json:"progress" gorm:"type:varchar(20);index"`
-	Properties Properties            `json:"properties" gorm:"type:json"`
+	Properties Properties            `json:"properties" gorm:"type:text"`
 	Username   string                `json:"username,omitempty" gorm:"-"`
 	// 禁止返回给用户，内部可能包含key等隐私信息
-	PrivateData TaskPrivateData `json:"-" gorm:"column:private_data;type:json"`
-	Data        json.RawMessage `json:"data" gorm:"type:json"`
+	PrivateData TaskPrivateData `json:"-" gorm:"column:private_data;type:text"`
+	Data        json.RawMessage `json:"data" gorm:"type:text"`
 }
 
 func (t *Task) SetData(data any) {
@@ -87,6 +90,13 @@ func (m *Properties) Scan(val interface{}) error {
 		return nil
 	}
 	return common.Unmarshal(bytesValue, m)
+}
+
+func (Properties) GormDBDataType(db *gorm.DB, field *schema.Field) string {
+	if db.Dialector.Name() == "postgres" {
+		return "jsonb"
+	}
+	return "text"
 }
 
 func (m Properties) Value() (driver.Value, error) {
@@ -147,6 +157,13 @@ func (p *TaskPrivateData) Scan(val interface{}) error {
 		return nil
 	}
 	return common.Unmarshal(bytesValue, p)
+}
+
+func (TaskPrivateData) GormDBDataType(db *gorm.DB, field *schema.Field) string {
+	if db.Dialector.Name() == "postgres" {
+		return "jsonb"
+	}
+	return "text"
 }
 
 func (p TaskPrivateData) Value() (driver.Value, error) {

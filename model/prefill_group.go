@@ -7,6 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 // PrefillGroup 用于存储可复用的“组”信息，例如模型组、标签组、端点组等。
@@ -18,6 +19,13 @@ import (
 
 // JSONValue 基于 json.RawMessage 实现，支持从数据库的 []byte 和 string 两种类型读取
 type JSONValue json.RawMessage
+
+func (JSONValue) GormDBDataType(db *gorm.DB, field *schema.Field) string {
+	if db.Dialector.Name() == "postgres" {
+		return "jsonb"
+	}
+	return "text"
+}
 
 // Value 实现 driver.Valuer 接口，用于数据库写入
 func (j JSONValue) Value() (driver.Value, error) {
@@ -77,7 +85,7 @@ type PrefillGroup struct {
 	Id          int            `json:"id"`
 	Name        string         `json:"name" gorm:"size:64;not null;uniqueIndex:uk_prefill_name,where:deleted_at IS NULL"`
 	Type        string         `json:"type" gorm:"size:32;index;not null"`
-	Items       JSONValue      `json:"items" gorm:"type:json"`
+	Items       JSONValue      `json:"items" gorm:"type:text"`
 	Description string         `json:"description,omitempty" gorm:"type:varchar(255)"`
 	CreatedTime int64          `json:"created_time" gorm:"bigint"`
 	UpdatedTime int64          `json:"updated_time" gorm:"bigint"`

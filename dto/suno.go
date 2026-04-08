@@ -24,7 +24,7 @@ type SunoDataResponse struct {
 	SubmitTime int64           `json:"submit_time" gorm:"index"`
 	StartTime  int64           `json:"start_time" gorm:"index"`
 	FinishTime int64           `json:"finish_time" gorm:"index"`
-	Data       json.RawMessage `json:"data" gorm:"type:json"`
+	Data       json.RawMessage `json:"data" gorm:"type:text"`
 }
 
 type SunoSong struct {
