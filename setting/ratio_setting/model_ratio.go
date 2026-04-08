@@ -700,6 +700,22 @@ func GetCompletionRatioCopy() map[string]float64 {
 	return completionRatioMap.ReadAll()
 }
 
+// SetModelRatioIfNotExists sets a model ratio only if the model has no existing ratio or price.
+// Used by BaseGate seed to provide defaults without overriding user configuration.
+func SetModelRatioIfNotExists(name string, ratio float64) {
+	if _, ok := modelRatioMap.Get(name); !ok {
+		modelRatioMap.Set(name, ratio)
+	}
+}
+
+// SetModelPriceIfNotExists sets a model price only if the model has no existing price or ratio.
+// Used by BaseGate seed to provide defaults without overriding user configuration.
+func SetModelPriceIfNotExists(name string, price float64) {
+	if _, ok := modelPriceMap.Get(name); !ok {
+		modelPriceMap.Set(name, price)
+	}
+}
+
 // 转换模型名，减少渠道必须配置各种带参数模型
 func FormatMatchingModelName(name string) string {
 

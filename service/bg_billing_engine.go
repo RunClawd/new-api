@@ -159,6 +159,7 @@ func FinalizeBilling(
 		BillableUnit:  canonicalUsage.BillableUnit,
 		InputUnits:    canonicalUsage.InputUnits,
 		OutputUnits:   canonicalUsage.OutputUnits,
+		Status:        "finalized", // Mark as finalized — resource consumption is real regardless of pricing
 		CreatedAt:     time.Now().Unix(),
 	}
 	usageJSON, _ := common.Marshal(rawUsage)

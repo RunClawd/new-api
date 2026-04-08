@@ -104,6 +104,27 @@ export default function BgCapabilitiesPage() {
         ),
     },
     {
+      title: t('定价模式'),
+      dataIndex: 'pricing_mode',
+      width: 100,
+      render: (v) => {
+        const colors = { ratio: 'blue', price: 'green', none: 'grey' };
+        const labels = { ratio: t('按量'), price: t('按次'), none: t('未配置') };
+        return <Tag color={colors[v] ?? 'grey'}>{labels[v] ?? v}</Tag>;
+      },
+    },
+    {
+      title: t('单价'),
+      dataIndex: 'unit_price',
+      width: 110,
+      render: (v, r) => {
+        if (!v || v === 0) return <Text type='tertiary'>—</Text>;
+        if (r.pricing_mode === 'price') return `$${Number(v).toFixed(4)}/req`;
+        // Ratio mode: unit_price is per-token ($)
+        return `$${Number(v * 1000000).toFixed(2)}/1M`;
+      },
+    },
+    {
       title: t('状态'),
       dataIndex: 'status',
       width: 80,

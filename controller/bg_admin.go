@@ -183,7 +183,15 @@ func AdminCloseBgSession(c *gin.Context) {
 	common.ApiSuccess(c, "ok")
 }
 
+// CapabilityWithPricing extends BgCapability with live pricing info from ratio_setting.
+type CapabilityWithPricing struct {
+	model.BgCapability
+	PricingMode string  `json:"pricing_mode"` // "ratio" | "price" | "none"
+	UnitPrice   float64 `json:"unit_price"`
+}
+
 // AdminListBgCapabilities handles GET /api/bg/capabilities
+// Returns capabilities enriched with current pricing from the ratio_setting system.
 func AdminListBgCapabilities(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	startIdx := pageInfo.GetStartIdx()
@@ -195,8 +203,25 @@ func AdminListBgCapabilities(c *gin.Context) {
 		return
 	}
 
+	// Enrich with live pricing
+	enriched := make([]CapabilityWithPricing, len(capabilities))
+	for i, cap := range capabilities {
+		enriched[i].BgCapability = *cap
+		pricing := service.LookupPricing(cap.CapabilityName, "hosted")
+		if pricing != nil && pricing.UnitPrice > 0 {
+			if pricing.BillingMode == "per_call" {
+				enriched[i].PricingMode = "price"
+			} else {
+				enriched[i].PricingMode = "ratio"
+			}
+			enriched[i].UnitPrice = pricing.UnitPrice
+		} else {
+			enriched[i].PricingMode = "none"
+		}
+	}
+
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(capabilities)
+	pageInfo.SetItems(enriched)
 	common.ApiSuccess(c, pageInfo)
 }
 
