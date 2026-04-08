@@ -291,6 +291,9 @@ func InitResources() error {
 	// Initialize options, should after model.InitDB()
 	model.InitOptionMap()
 
+	// Seed BaseGate default pricing AFTER InitOptionMap so user-configured values are loaded first.
+	model.SeedBgDefaultPricing()
+
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()
 

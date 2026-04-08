@@ -127,16 +127,18 @@ func SeedBgCapabilities() error {
 		return err
 	}
 
-	// Seed default pricing into the existing ratio_setting system.
-	// Only writes if the model name is NOT already configured (user overrides preserved).
-	seedBgDefaultPricing()
+	// NOTE: Pricing seed is NOT called here because InitOptionMap() (which loads
+	// ModelRatio/ModelPrice from the options table) runs AFTER migrateDB().
+	// Calling seedBgDefaultPricing() here would be overwritten by InitOptionMap().
+	// Instead, call SeedBgDefaultPricing() from main.go after InitOptionMap().
 	return nil
 }
 
-// seedBgDefaultPricing writes default prices for BaseGate capabilities into
-// the in-memory ratio/price maps. These are picked up by LookupPricing().
+// SeedBgDefaultPricing writes default prices for BaseGate capabilities into
+// the in-memory ratio/price maps AND persists them to the options table.
+// Must be called AFTER InitOptionMap() so that user-configured values are already loaded.
 // Only sets values for models that don't already have a price or ratio configured.
-func seedBgDefaultPricing() {
+func SeedBgDefaultPricing() {
 	// Ratio-based models (LLM): value is the ratio multiplier (1.0 ≈ $0.002/1K tokens)
 	ratioDefaults := map[string]float64{
 		"bg.llm.chat.fast":      0.5,
@@ -168,6 +170,11 @@ func seedBgDefaultPricing() {
 		}
 	}
 	if seeded > 0 {
-		common.SysLog(fmt.Sprintf("bg_seed: seeded default pricing for %d capabilities", seeded))
+		// Persist the updated maps to the options table so they survive restart.
+		ratioJSON := ratio_setting.ModelRatio2JSONString()
+		priceJSON := ratio_setting.ModelPrice2JSONString()
+		UpdateOption("ModelRatio", ratioJSON)
+		UpdateOption("ModelPrice", priceJSON)
+		common.SysLog(fmt.Sprintf("bg_seed: seeded default pricing for %d capabilities (persisted to options)", seeded))
 	}
 }
