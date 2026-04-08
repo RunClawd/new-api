@@ -7,6 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/relay/basegate"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -45,10 +46,11 @@ func AdminListBgResponses(c *gin.Context) {
 	orgID, _ := strconv.Atoi(c.Query("org_id"))
 	modelName := c.Query("model")
 	status := c.Query("status")
+	keyword := c.Query("q")
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 
-	responses, total, err := model.GetBgResponsesAdmin(orgID, modelName, status, startTimestamp, endTimestamp, startIdx, num)
+	responses, total, err := model.GetBgResponsesAdmin(orgID, modelName, status, keyword, startTimestamp, endTimestamp, startIdx, num)
 	if err != nil {
 		common.ApiErrorMsg(c, "Failed to list responses: "+err.Error())
 		return
@@ -96,6 +98,23 @@ func AdminGetBgResponse(c *gin.Context) {
 	detail.BillingRecords = billingRecords
 
 	common.ApiSuccess(c, detail)
+}
+
+// AdminCancelBgResponse handles POST /api/bg/responses/:id/cancel
+func AdminCancelBgResponse(c *gin.Context) {
+	responseID := c.Param("id")
+	if responseID == "" {
+		common.ApiErrorMsg(c, "response_id is required")
+		return
+	}
+
+	resp, err := service.CancelResponse(responseID)
+	if err != nil {
+		common.ApiErrorMsg(c, "Failed to cancel response: "+err.Error())
+		return
+	}
+
+	common.ApiSuccess(c, resp)
 }
 
 // AdminListBgSessions handles GET /api/bg/sessions

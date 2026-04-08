@@ -1,7 +1,7 @@
 import React from 'react';
 import { DatePicker, Select, Input, Button, Space } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
-import { IconSearch, IconRefresh } from '@douyinfe/semi-icons';
+import { IconSearch, IconRefresh, IconDownload } from '@douyinfe/semi-icons';
 
 export default function BgUsageFilters({
   startTimestamp,
@@ -13,6 +13,7 @@ export default function BgUsageFilters({
   onModelChange,
   onGranularityChange,
   onRefresh,
+  onExport,
   loading,
 }) {
   const { t } = useTranslation();
@@ -33,9 +34,13 @@ export default function BgUsageFilters({
         onChange={(dates) => {
           if (dates && dates[0]) {
             onStartChange(Math.floor(dates[0].getTime() / 1000));
+          } else {
+            onStartChange(null);
           }
           if (dates && dates[1]) {
             onEndChange(Math.floor(dates[1].getTime() / 1000));
+          } else {
+            onEndChange(null);
           }
         }}
         placeholder={[t('开始日期'), t('结束日期')]}
@@ -65,6 +70,13 @@ export default function BgUsageFilters({
         type='tertiary'
       >
         {t('刷新')}
+      </Button>
+      <Button
+        icon={<IconDownload />}
+        onClick={onExport}
+        type='tertiary'
+      >
+        {t('导出 CSV')}
       </Button>
     </Space>
   );

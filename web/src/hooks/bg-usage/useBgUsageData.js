@@ -103,7 +103,10 @@ export function useBgUsageData() {
     page,
     pageSize,
     setPage,
-    setPageSize,
+    setPageSize: (v) => {
+      setPageSize(v);
+      setPage(1);
+    },
     // Filters
     startTimestamp,
     endTimestamp,

@@ -53,6 +53,10 @@ export const DEFAULT_ADMIN_CONFIG = {
     user: true,
     subscription: true,
     setting: true,
+    bgUsage: true,
+    bgResponses: true,
+    bgCapabilities: true,
+    bgAdapters: true,
   },
 };
 

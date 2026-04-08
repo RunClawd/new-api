@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { Card, Table, Tag, Button, Space, Typography, Modal } from '@douyinfe/semi-ui';
+import React, { useState, useCallback, useEffect } from 'react';
+import { Card, Table, Tag, Button, Space, Typography, Modal, Switch } from '@douyinfe/semi-ui';
 import { IconRefresh, IconUndo } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess } from '../../helpers';
@@ -10,12 +10,14 @@ const STATE_COLORS = {
   closed: 'green',
   open: 'red',
   half_open: 'orange',
+  'half-open': 'orange',
 };
 
 const STATE_LABELS = {
   closed: 'Closed',
   open: 'Open',
   half_open: 'Half-Open',
+  'half-open': 'Half-Open',
 };
 
 export default function BgAdaptersPage() {
@@ -23,24 +25,35 @@ export default function BgAdaptersPage() {
   const [adapters, setAdapters] = useState([]);
   const [loading, setLoading] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
-  const fetchAdapters = useCallback(async () => {
-    setLoading(true);
+  const fetchAdapters = useCallback(async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
     try {
       const res = await API.get('/api/bg/adapters');
       if (res.data?.success) {
         setAdapters(res.data.data ?? []);
       } else {
-        showError(res.data?.message || t('获取失败'));
+        if (!isSilent) showError(res.data?.message || t('获取失败'));
       }
     } catch (e) {
-      showError(t('获取失败'));
+      if (!isSilent) showError(t('获取失败'));
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
-  }, []);
+  }, [t]);
 
-  React.useEffect(() => { fetchAdapters(); }, [fetchAdapters]);
+  useEffect(() => { fetchAdapters(); }, [fetchAdapters]);
+
+  useEffect(() => {
+    let timer;
+    if (autoRefresh) {
+      timer = setInterval(() => {
+        fetchAdapters(true);
+      }, 5000);
+    }
+    return () => clearInterval(timer);
+  }, [autoRefresh, fetchAdapters]);
 
   const handleReload = async () => {
     setReloading(true);
@@ -139,7 +152,7 @@ export default function BgAdaptersPage() {
   ];
 
   return (
-    <div style={{ padding: '24px', maxWidth: 1400, margin: '0 auto' }}>
+    <div style={{ padding: '24px', maxWidth: 1400, margin: '60px auto 0' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
           <Title heading={4} style={{ margin: 0 }}>{t('BaseGate 适配器')}</Title>
@@ -148,7 +161,14 @@ export default function BgAdaptersPage() {
           </Text>
         </div>
         <Space>
-          <Button icon={<IconRefresh />} onClick={fetchAdapters} loading={loading} type='tertiary'>
+          <Text type='secondary'>{t('自动刷新')}</Text>
+          <Switch 
+            checked={autoRefresh} 
+            onChange={setAutoRefresh} 
+            size='small' 
+            style={{ marginRight: 8 }}
+          />
+          <Button icon={<IconRefresh />} onClick={() => fetchAdapters(false)} loading={loading} type='tertiary'>
             {t('刷新')}
           </Button>
           <Button

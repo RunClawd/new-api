@@ -1,5 +1,6 @@
-import React from 'react';
-import { Card, Tag, Typography } from '@douyinfe/semi-ui';
+import React, { useState } from 'react';
+import { Card, Tag, Typography, Tabs, TabPane } from '@douyinfe/semi-ui';
+import { VChart } from '@visactor/react-vchart';
 import { useTranslation } from 'react-i18next';
 import { useBgUsageData } from '../../hooks/bg-usage/useBgUsageData';
 import BgUsageStats from '../../components/table/bg-usage/BgUsageStats';
@@ -32,13 +33,55 @@ export default function BgUsagePage() {
     refreshTable,
   } = useBgUsageData();
 
+  const [activeChartTab, setActiveChartTab] = useState('requests');
+
   const handleRefresh = () => {
     refreshStats();
     refreshTable();
   };
 
+  const handleExport = () => {
+    if (!rows || rows.length === 0) return;
+    const header = ['Date', 'Model', 'Cost', 'Requests', 'Tokens', 'Succeeded', 'Failed'];
+    const csvContent = rows.map(r => [
+      r.time_bucket, r.model, r.total_cost, r.total_requests, r.total_tokens, r.succeeded_count, r.failed_count
+    ].join(','));
+    csvContent.unshift(header.join(','));
+    const blob = new Blob([csvContent.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `bg_usage_${model || 'all'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const commonChartSpec = {
+    data: [{ id: 'barData', values: rows }],
+    xField: 'time_bucket',
+    seriesField: 'model',
+    legends: { visible: true, orient: 'bottom' },
+    tooltip: { mark: { title: true, content: [{ key: 'model', value: (d) => String(d.value) }] } }
+  };
+
+  const chartSpecRequests = {
+    ...commonChartSpec,
+    type: 'bar',
+    yField: 'total_requests',
+    axes: [{ orient: 'left', title: { visible: true, text: t('调用次数') } }, { orient: 'bottom' }],
+  };
+
+  const chartSpecCost = {
+    ...commonChartSpec,
+    type: 'line',
+    point: { style: { visible: true } },
+    yField: 'total_cost',
+    axes: [{ orient: 'left', title: { visible: true, text: t('消耗金额 $') } }, { orient: 'bottom' }],
+  };
+
   return (
-    <div style={{ padding: '24px', maxWidth: 1400, margin: '0 auto' }}>
+    <div style={{ padding: '24px', maxWidth: 1400, margin: '60px auto 0' }}>
       <div style={{ marginBottom: 20 }}>
         <Title heading={4} style={{ margin: 0 }}>
           {t('BaseGate 用量概览')}
@@ -68,6 +111,21 @@ export default function BgUsagePage() {
         </div>
       )}
 
+      {/* Chart Panel */}
+      {rows.length > 0 && (
+        <Card shadows='hover' style={{ borderRadius: 12, marginBottom: 20 }} bodyStyle={{ padding: 16 }}>
+          <Tabs type="line" activeKey={activeChartTab} onChange={setActiveChartTab}>
+            <TabPane tab={t('请求数趋势')} itemKey="requests" />
+            <TabPane tab={t('用量消耗趋势')} itemKey="cost" />
+          </Tabs>
+          <div style={{ height: 350, marginTop: 16 }}>
+            <VChart
+              spec={activeChartTab === 'requests' ? chartSpecRequests : chartSpecCost}
+            />
+          </div>
+        </Card>
+      )}
+
       {/* Table Card */}
       <Card
         title={t('用量明细')}
@@ -84,6 +142,7 @@ export default function BgUsagePage() {
             onModelChange={setModel}
             onGranularityChange={setGranularity}
             onRefresh={handleRefresh}
+            onExport={handleExport}
             loading={tableLoading || statsLoading}
           />
         }

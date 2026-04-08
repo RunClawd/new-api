@@ -1,7 +1,7 @@
 package model
 
 // GetBgResponsesAdmin fetches a paginated list of BgResponses.
-func GetBgResponsesAdmin(orgID int, modelName, status string, startTimestamp, endTimestamp int64, startIdx, num int) (responses []*BgResponse, total int64, err error) {
+func GetBgResponsesAdmin(orgID int, modelName, status, keyword string, startTimestamp, endTimestamp int64, startIdx, num int) (responses []*BgResponse, total int64, err error) {
 	tx := DB.Model(&BgResponse{})
 
 	if orgID > 0 {
@@ -12,6 +12,9 @@ func GetBgResponsesAdmin(orgID int, modelName, status string, startTimestamp, en
 	}
 	if status != "" {
 		tx = tx.Where("status = ?", status)
+	}
+	if keyword != "" {
+		tx = tx.Where("response_id = ? OR request_id = ?", keyword, keyword)
 	}
 	if startTimestamp > 0 {
 		tx = tx.Where("created_at >= ?", startTimestamp)
