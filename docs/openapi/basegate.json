@@ -1,0 +1,2365 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "BaseGate API",
+    "version": "1.0.0",
+    "description": "BaseGate is a unified capability gateway that normalizes heterogeneous AI providers behind a single request/response lifecycle. It supports synchronous, asynchronous, and streaming execution modes with built-in billing, usage tracking, session management, and provider failover."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Default server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Responses",
+      "description": "Create, poll, and cancel BaseGate responses. Supports sync, async, and streaming execution modes."
+    },
+    {
+      "name": "Sessions",
+      "description": "Manage long-lived interactive sessions (e.g. browser sandboxes, coding environments)."
+    },
+    {
+      "name": "Usage",
+      "description": "Query aggregated usage metrics scoped to the authenticated tenant."
+    },
+    {
+      "name": "Callbacks",
+      "description": "Inbound webhook endpoint for upstream providers to deliver asynchronous task results. No authentication required."
+    },
+    {
+      "name": "Admin",
+      "description": "Dashboard-facing administrative endpoints for listing responses, sessions, capabilities, usage stats, and managing projects."
+    }
+  ],
+  "security": [],
+  "paths": {
+    "/v1/bg/responses": {
+      "post": {
+        "operationId": "createResponse",
+        "summary": "Create a response",
+        "description": "Submit a request to a model capability. The execution mode (sync, async, or stream) is controlled via `execution_options.mode`. Sync requests block until completion and return the full response. Async requests return immediately with status `accepted` and a `poll_url`. Stream requests deliver server-sent events.\n\nIdempotency is supported via the `Idempotency-Key` header.",
+        "tags": ["Responses"],
+        "security": [{ "TokenAuth": [] }],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Client-supplied idempotency key. If a response with the same key already exists for this tenant, it is returned instead of creating a new one.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "X-Project-Id",
+            "in": "header",
+            "required": false,
+            "description": "Optional project ID for multi-project tenants.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BaseGateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sync response completed successfully (terminal status).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BaseGateResponse" }
+              }
+            }
+          },
+          "202": {
+            "description": "Async response accepted. Poll the `poll_url` to check progress.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BaseGateResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          },
+          "402": {
+            "description": "Insufficient quota.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency key conflict — a different request was already submitted with this key.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bg/responses/{id}": {
+      "get": {
+        "operationId": "getResponse",
+        "summary": "Get a response by ID",
+        "description": "Retrieve the current state of a response. Use this to poll async responses until they reach a terminal status (succeeded, failed, canceled, expired).",
+        "tags": ["Responses"],
+        "security": [{ "TokenAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The response ID (e.g. `resp_abc123`).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BaseGateResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing response_id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Response not found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bg/responses/{id}/cancel": {
+      "post": {
+        "operationId": "cancelResponse",
+        "summary": "Cancel a response",
+        "description": "Request cancellation of a non-terminal response. The response transitions to `canceled` status.",
+        "tags": ["Responses"],
+        "security": [{ "TokenAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The response ID to cancel.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response canceled successfully.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BaseGateResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing response_id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Response not found or already in terminal state.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bg/sessions": {
+      "post": {
+        "operationId": "createSession",
+        "summary": "Create a session",
+        "description": "Create a new long-lived session for interactive capabilities (e.g. browser sandbox, coding environment). The session is created asynchronously and transitions from `creating` to `active` once the provider confirms readiness.",
+        "tags": ["Sessions"],
+        "security": [{ "TokenAuth": [] }],
+        "parameters": [
+          {
+            "name": "X-Project-Id",
+            "in": "header",
+            "required": false,
+            "description": "Optional project ID.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BaseGateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Session created.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BGSessionResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bg/sessions/{id}": {
+      "get": {
+        "operationId": "getSession",
+        "summary": "Get a session by ID",
+        "description": "Retrieve the current state of a session.",
+        "tags": ["Sessions"],
+        "security": [{ "TokenAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The session ID (e.g. `sess_abc123`).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BGSessionResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing session ID.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bg/sessions/{id}/action": {
+      "post": {
+        "operationId": "executeSessionAction",
+        "summary": "Execute a session action",
+        "description": "Send an action to an active session. Only one action can be in-flight at a time per session; concurrent submissions return 409 Conflict.",
+        "tags": ["Sessions"],
+        "security": [{ "TokenAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The session ID.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BGSessionActionRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Action executed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BGSessionActionResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or session is in a terminal state.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          },
+          "409": {
+            "description": "Session is busy processing another action.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream adapter error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bg/sessions/{id}/close": {
+      "post": {
+        "operationId": "closeSession",
+        "summary": "Close a session",
+        "description": "Gracefully close an active session. The session transitions to `closed` status and releases provider resources.",
+        "tags": ["Sessions"],
+        "security": [{ "TokenAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The session ID to close.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session closed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BGSessionResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing session ID.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RelayErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bg/usage": {
+      "get": {
+        "operationId": "getUsage",
+        "summary": "Get aggregated usage",
+        "description": "Returns aggregated usage metrics from finalized usage records, scoped to the authenticated tenant. Results are grouped by model and time bucket. Optionally joins billing records to include cost data.",
+        "tags": ["Usage"],
+        "security": [{ "TokenAuth": [] }],
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "description": "Start date in ISO 8601 format (`YYYY-MM-DD`). Filters records with `created_at >= start of that day (UTC)`.",
+            "schema": { "type": "string", "format": "date", "example": "2024-01-01" }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "description": "End date in ISO 8601 format (`YYYY-MM-DD`). Inclusive — filters records through the end of that day (UTC).",
+            "schema": { "type": "string", "format": "date", "example": "2024-01-31" }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "description": "Filter by model name.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "granularity",
+            "in": "query",
+            "required": false,
+            "description": "Time bucket granularity.",
+            "schema": {
+              "type": "string",
+              "enum": ["day", "hour", "month"],
+              "default": "day"
+            }
+          },
+          {
+            "name": "include_cost",
+            "in": "query",
+            "required": false,
+            "description": "Set to `true` to join billing records and include `total_cost` in results.",
+            "schema": { "type": "string", "enum": ["true", "false"] }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum rows per page. Default 100, maximum 500.",
+            "schema": { "type": "integer", "default": 100, "maximum": 500 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Pagination offset. Default 0.",
+            "schema": { "type": "integer", "default": 0 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage data returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/UsageResult" }
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "description": "The limit applied to this query."
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "description": "The offset applied to this query."
+                    }
+                  },
+                  "required": ["data", "limit", "offset"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid auth context.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bg/callbacks/{response_id}": {
+      "post": {
+        "operationId": "inboundProviderCallback",
+        "summary": "Inbound provider callback",
+        "description": "Webhook endpoint for upstream providers to deliver asynchronous task completion results. No API authentication is required; the provider verifies its own identity via the adapter's signature verification. The response_id in the URL must correspond to a valid response with an active attempt.\n\nThe request body format is provider-specific and parsed by the adapter's `ParseCallback` method.",
+        "tags": ["Callbacks"],
+        "security": [],
+        "parameters": [
+          {
+            "name": "response_id",
+            "in": "path",
+            "required": true,
+            "description": "The response ID that this callback relates to.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Provider-specific callback payload. The format varies by upstream provider and is parsed by the adapter.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Provider-specific callback body. Schema varies by provider."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Callback accepted and state machine updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "accepted"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing response_id, adapter does not support callbacks, or parse failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Response or active attempt not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Response has no active attempt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal state transition failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Adapter not found for this attempt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bg/responses": {
+      "get": {
+        "operationId": "adminListResponses",
+        "summary": "List responses (admin)",
+        "description": "Returns a paginated list of BaseGate responses. Supports filtering by org, model, status, and time range.",
+        "tags": ["Admin"],
+        "security": [{ "AdminAuth": [] }],
+        "parameters": [
+          {
+            "name": "p",
+            "in": "query",
+            "required": false,
+            "description": "Page number (1-based). Default 1.",
+            "schema": { "type": "integer", "default": 1 }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "description": "Number of items per page. Maximum 100.",
+            "schema": { "type": "integer", "default": 10, "maximum": 100 }
+          },
+          {
+            "name": "org_id",
+            "in": "query",
+            "required": false,
+            "description": "Filter by organization (tenant) ID. 0 or omitted returns all.",
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "description": "Filter by model name.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter by response status.",
+            "schema": {
+              "type": "string",
+              "enum": ["accepted", "queued", "running", "streaming", "succeeded", "failed", "canceled", "expired"]
+            }
+          },
+          {
+            "name": "start_timestamp",
+            "in": "query",
+            "required": false,
+            "description": "Filter responses created at or after this Unix timestamp.",
+            "schema": { "type": "integer", "format": "int64" }
+          },
+          {
+            "name": "end_timestamp",
+            "in": "query",
+            "required": false,
+            "description": "Filter responses created at or before this Unix timestamp.",
+            "schema": { "type": "integer", "format": "int64" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of responses.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPageResponse_BgResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bg/responses/{id}": {
+      "get": {
+        "operationId": "adminGetResponse",
+        "summary": "Get response detail (admin)",
+        "description": "Returns the full detail of a single response, including all attempts, usage records, and billing records.",
+        "tags": ["Admin"],
+        "security": [{ "AdminAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The response ID (e.g. `resp_abc123`).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response detail with attempts, usage, and billing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string" },
+                    "data": { "$ref": "#/components/schemas/AdminBgResponseDetail" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bg/sessions": {
+      "get": {
+        "operationId": "adminListSessions",
+        "summary": "List sessions (admin)",
+        "description": "Returns a paginated list of BaseGate sessions. Supports filtering by org, status, and time range.",
+        "tags": ["Admin"],
+        "security": [{ "AdminAuth": [] }],
+        "parameters": [
+          {
+            "name": "p",
+            "in": "query",
+            "required": false,
+            "description": "Page number (1-based). Default 1.",
+            "schema": { "type": "integer", "default": 1 }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "description": "Number of items per page. Maximum 100.",
+            "schema": { "type": "integer", "default": 10, "maximum": 100 }
+          },
+          {
+            "name": "org_id",
+            "in": "query",
+            "required": false,
+            "description": "Filter by organization (tenant) ID.",
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter by session status.",
+            "schema": {
+              "type": "string",
+              "enum": ["creating", "active", "idle", "suspended", "closed", "expired", "failed"]
+            }
+          },
+          {
+            "name": "start_timestamp",
+            "in": "query",
+            "required": false,
+            "description": "Filter sessions created at or after this Unix timestamp.",
+            "schema": { "type": "integer", "format": "int64" }
+          },
+          {
+            "name": "end_timestamp",
+            "in": "query",
+            "required": false,
+            "description": "Filter sessions created at or before this Unix timestamp.",
+            "schema": { "type": "integer", "format": "int64" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of sessions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPageResponse_BgSession"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bg/sessions/{id}": {
+      "get": {
+        "operationId": "adminGetSession",
+        "summary": "Get session detail (admin)",
+        "description": "Returns the full detail of a single session including all session actions.",
+        "tags": ["Admin"],
+        "security": [{ "AdminAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The session ID (e.g. `sess_abc123`).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session detail with actions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string" },
+                    "data": { "$ref": "#/components/schemas/AdminBgSessionDetail" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bg/capabilities": {
+      "get": {
+        "operationId": "adminListCapabilities",
+        "summary": "List capabilities (admin)",
+        "description": "Returns a paginated list of registered BaseGate capabilities.",
+        "tags": ["Admin"],
+        "security": [{ "AdminAuth": [] }],
+        "parameters": [
+          {
+            "name": "p",
+            "in": "query",
+            "required": false,
+            "description": "Page number (1-based). Default 1.",
+            "schema": { "type": "integer", "default": 1 }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "description": "Number of items per page. Maximum 100.",
+            "schema": { "type": "integer", "default": 10, "maximum": 100 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of capabilities.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPageResponse_BgCapability"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bg/usage/stats": {
+      "get": {
+        "operationId": "adminGetUsageStats",
+        "summary": "Get usage KPI stats (admin)",
+        "description": "Returns aggregate usage statistics for the BaseGate dashboard KPI cards: total requests, success/failure/running counts, total cost, total tokens, and adapter circuit breaker states.",
+        "tags": ["Admin"],
+        "security": [{ "AdminAuth": [] }],
+        "parameters": [
+          {
+            "name": "org_id",
+            "in": "query",
+            "required": false,
+            "description": "Filter by organization (tenant) ID. 0 or omitted returns stats across all tenants.",
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage KPI stats.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string" },
+                    "data": { "$ref": "#/components/schemas/AdminBgUsageStats" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bg/projects": {
+      "get": {
+        "operationId": "adminListProjects",
+        "summary": "List projects (admin)",
+        "description": "Returns a paginated list of BaseGate projects.",
+        "tags": ["Admin"],
+        "security": [{ "AdminAuth": [] }],
+        "parameters": [
+          {
+            "name": "p",
+            "in": "query",
+            "required": false,
+            "description": "Page number (1-based). Default 1.",
+            "schema": { "type": "integer", "default": 1 }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "description": "Number of items per page. Maximum 100.",
+            "schema": { "type": "integer", "default": 10, "maximum": 100 }
+          },
+          {
+            "name": "org_id",
+            "in": "query",
+            "required": false,
+            "description": "Filter by organization (tenant) ID.",
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of projects.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPageResponse_BgProject"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "adminCreateProject",
+        "summary": "Create a project (admin)",
+        "description": "Create a new BaseGate project under an organization.",
+        "tags": ["Admin"],
+        "security": [{ "AdminAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateProjectRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Project created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string" },
+                    "data": { "$ref": "#/components/schemas/BgProject" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bg/projects/{id}": {
+      "put": {
+        "operationId": "adminUpdateProject",
+        "summary": "Update a project (admin)",
+        "description": "Update name, description, or status of an existing project.",
+        "tags": ["Admin"],
+        "security": [{ "AdminAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The project ID (e.g. `proj_abc123`).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateProjectRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Project updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string" },
+                    "data": { "$ref": "#/components/schemas/BgProject" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "adminDeleteProject",
+        "summary": "Delete a project (admin)",
+        "description": "Permanently delete a project by its project ID.",
+        "tags": ["Admin"],
+        "security": [{ "AdminAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The project ID to delete.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "TokenAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "API token for relay (consumer-facing) routes. Passed as `Authorization: Bearer <token>`."
+      },
+      "AdminAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Admin session token for dashboard (admin-facing) routes. Passed as `Authorization: Bearer <token>`."
+      }
+    },
+    "schemas": {
+      "BaseGateRequest": {
+        "type": "object",
+        "required": ["model", "input"],
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "The model or capability name to invoke (e.g. `gpt-4o`, `claude-sonnet-4-20250514`)."
+          },
+          "input": {
+            "description": "The input payload. Format varies by capability — typically a string prompt, an array of message objects, or a structured input object.",
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "object" } },
+              { "type": "object" }
+            ]
+          },
+          "execution_options": {
+            "$ref": "#/components/schemas/BGExecutionOptions"
+          },
+          "response_format": {
+            "$ref": "#/components/schemas/BGResponseFormat"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Arbitrary key-value metadata. The `user_id` key is treated as an end-user tracking alias."
+          }
+        }
+      },
+      "BGExecutionOptions": {
+        "type": "object",
+        "description": "Controls execution behavior.",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["sync", "async", "stream", "session"],
+            "description": "Execution mode. Default is `sync`."
+          },
+          "webhook_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL to receive webhook notifications for async responses."
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "description": "Request timeout in milliseconds."
+          }
+        }
+      },
+      "BGResponseFormat": {
+        "type": "object",
+        "description": "Specifies desired output format.",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["json_schema", "text", "auto"],
+            "description": "Output format type."
+          },
+          "json_schema": {
+            "description": "JSON Schema object when `type` is `json_schema`."
+          }
+        }
+      },
+      "BaseGateResponse": {
+        "type": "object",
+        "description": "The standard response object returned by BaseGate.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique response ID (e.g. `resp_abc123`)."
+          },
+          "object": {
+            "type": "string",
+            "enum": ["response"],
+            "description": "Object type discriminator."
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp when the response was created."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["accepted", "queued", "running", "streaming", "succeeded", "failed", "canceled", "expired"],
+            "description": "Current lifecycle status."
+          },
+          "model": {
+            "type": "string",
+            "description": "The model that processed (or is processing) this request."
+          },
+          "output": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BGOutputItem" },
+            "description": "Output items. Present when status is `succeeded`."
+          },
+          "usage": {
+            "$ref": "#/components/schemas/BGUsage"
+          },
+          "pricing": {
+            "$ref": "#/components/schemas/BGPricing"
+          },
+          "error": {
+            "$ref": "#/components/schemas/BGError"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/BGMeta"
+          },
+          "poll_url": {
+            "type": "string",
+            "description": "Relative URL to poll for updates. Present only when status is non-terminal (`accepted`, `queued`, `running`)."
+          }
+        },
+        "required": ["id", "object", "created_at", "status", "model"]
+      },
+      "BGOutputItem": {
+        "type": "object",
+        "description": "A single element in the response output array.",
+        "required": ["type", "content"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["text", "image", "video", "audio", "file", "session", "tool_call"],
+            "description": "Output item type."
+          },
+          "content": {
+            "description": "The output content. Type depends on the `type` field — a string for text, an object for structured types."
+          },
+          "role": {
+            "type": "string",
+            "enum": ["assistant", "system", "tool"],
+            "description": "The role that produced this output."
+          }
+        }
+      },
+      "BGUsage": {
+        "type": "object",
+        "description": "Normalized usage metrics.",
+        "properties": {
+          "billable_units": {
+            "type": "number",
+            "format": "double",
+            "description": "Total billable units consumed."
+          },
+          "billable_unit": {
+            "type": "string",
+            "description": "Unit of measurement (e.g. `token`, `second`, `minute`, `request`)."
+          },
+          "input_units": {
+            "type": "number",
+            "format": "double",
+            "description": "Input units consumed (e.g. input tokens)."
+          },
+          "output_units": {
+            "type": "number",
+            "format": "double",
+            "description": "Output units consumed (e.g. output tokens)."
+          }
+        }
+      },
+      "BGPricing": {
+        "type": "object",
+        "description": "Pricing information for the response.",
+        "properties": {
+          "billing_mode": {
+            "type": "string",
+            "description": "Billing mode (e.g. `metered`, `per_call`)."
+          },
+          "billable_unit": {
+            "type": "string",
+            "description": "Unit of billing."
+          },
+          "unit_price": {
+            "type": "number",
+            "format": "double",
+            "description": "Price per billable unit."
+          },
+          "total": {
+            "type": "number",
+            "format": "double",
+            "description": "Total cost for this response."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code (e.g. `usd`)."
+          }
+        }
+      },
+      "BGError": {
+        "type": "object",
+        "description": "Error information. Present when status is `failed`.",
+        "required": ["code", "message"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "OpenAI-compatible error type discriminator (e.g. `invalid_request_error`, `api_error`, `rate_limit_error`)."
+          },
+          "code": {
+            "type": "string",
+            "description": "BaseGate-internal error code (e.g. `provider_unavailable`, `billing_failed`, `adapter_timeout`)."
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable error message."
+          },
+          "param": {
+            "type": "string",
+            "description": "OpenAI-compatible parameter name that caused the error."
+          },
+          "detail": {
+            "type": "string",
+            "description": "Additional detail about the error."
+          }
+        }
+      },
+      "BGMeta": {
+        "type": "object",
+        "description": "Metadata about the response execution.",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "description": "Internal request ID."
+          },
+          "provider": {
+            "type": "string",
+            "description": "The upstream provider that handled the request."
+          },
+          "latency_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "End-to-end latency in milliseconds."
+          },
+          "attempt_no": {
+            "type": "integer",
+            "description": "Which attempt number produced this result (1-based)."
+          }
+        }
+      },
+      "BGSessionActionRequest": {
+        "type": "object",
+        "description": "Request body for executing a session action.",
+        "required": ["action"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "The action to execute (provider-specific, e.g. `navigate`, `screenshot`, `execute`)."
+          },
+          "input": {
+            "description": "Action input payload. Format depends on the action type.",
+            "oneOf": [
+              { "type": "string" },
+              { "type": "object" },
+              { "type": "array", "items": {} }
+            ]
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Optional idempotency key for action retry."
+          },
+          "execution_options": {
+            "$ref": "#/components/schemas/BGExecutionOptions"
+          }
+        }
+      },
+      "BGSessionActionResponse": {
+        "type": "object",
+        "description": "Response from a session action execution.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique action ID (e.g. `act_abc123`)."
+          },
+          "object": {
+            "type": "string",
+            "enum": ["session_action"],
+            "description": "Object type discriminator."
+          },
+          "session_id": {
+            "type": "string",
+            "description": "The session this action belongs to."
+          },
+          "status": {
+            "type": "string",
+            "description": "Action status (e.g. `running`, `succeeded`, `failed`)."
+          },
+          "output": {
+            "description": "Action output. Format depends on the action type."
+          },
+          "usage": {
+            "$ref": "#/components/schemas/BGUsage"
+          },
+          "error": {
+            "$ref": "#/components/schemas/BGError"
+          }
+        },
+        "required": ["id", "object", "session_id", "status"]
+      },
+      "BGSessionResponse": {
+        "type": "object",
+        "description": "The standard session object.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique session ID (e.g. `sess_abc123`)."
+          },
+          "object": {
+            "type": "string",
+            "enum": ["session"],
+            "description": "Object type discriminator."
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp when the session was created."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["creating", "active", "idle", "suspended", "closed", "expired", "failed"],
+            "description": "Current session lifecycle status."
+          },
+          "model": {
+            "type": "string",
+            "description": "The model/capability powering this session."
+          },
+          "response_id": {
+            "type": "string",
+            "description": "The parent response ID that created this session."
+          },
+          "usage": {
+            "$ref": "#/components/schemas/BGUsage"
+          },
+          "expires_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp when the session will expire."
+          },
+          "idle_timeout_sec": {
+            "type": "integer",
+            "description": "Idle timeout in seconds. Session transitions to expired after this duration of inactivity."
+          },
+          "max_duration_sec": {
+            "type": "integer",
+            "description": "Maximum session duration in seconds."
+          },
+          "last_action_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp of the last action."
+          },
+          "closed_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp when the session was closed. Zero if still open."
+          }
+        },
+        "required": ["id", "object", "created_at", "status", "model", "response_id"]
+      },
+      "RelayErrorResponse": {
+        "type": "object",
+        "description": "Error response format used by relay (consumer-facing) endpoints.",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "Machine-readable error code."
+              },
+              "type": {
+                "type": "string",
+                "description": "OpenAI-compatible error type (e.g. `invalid_request_error`)."
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable error message."
+              }
+            },
+            "required": ["code", "message"]
+          }
+        },
+        "required": ["error"]
+      },
+      "UsageResult": {
+        "type": "object",
+        "description": "A single aggregated usage row.",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Model name."
+          },
+          "time_bucket": {
+            "type": "string",
+            "description": "Time bucket label (format depends on granularity: `YYYY-MM-DD`, `YYYY-MM-DD HH:00:00`, or `YYYY-MM`)."
+          },
+          "total_units": {
+            "type": "number",
+            "format": "double",
+            "description": "Sum of billable_units in this bucket."
+          },
+          "total_input": {
+            "type": "number",
+            "format": "double",
+            "description": "Sum of input_units in this bucket."
+          },
+          "total_output": {
+            "type": "number",
+            "format": "double",
+            "description": "Sum of output_units in this bucket."
+          },
+          "total_cost": {
+            "type": "number",
+            "format": "double",
+            "description": "Sum of billing amount in this bucket. Only present when `include_cost=true`."
+          }
+        }
+      },
+      "BgResponse": {
+        "type": "object",
+        "description": "Database-level response record (used in admin endpoints).",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Auto-increment primary key."
+          },
+          "response_id": {
+            "type": "string",
+            "description": "Public response ID (e.g. `resp_abc123`)."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Internal request ID."
+          },
+          "org_id": {
+            "type": "integer",
+            "description": "Organization (tenant) ID."
+          },
+          "project_id": {
+            "type": "integer",
+            "description": "Project ID."
+          },
+          "api_key_id": {
+            "type": "integer",
+            "description": "API key ID used for this request."
+          },
+          "end_user_id": {
+            "type": "string",
+            "description": "Optional end-user tracking alias."
+          },
+          "model": {
+            "type": "string",
+            "description": "Model name."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["accepted", "queued", "running", "streaming", "succeeded", "failed", "canceled", "expired"],
+            "description": "Response lifecycle status."
+          },
+          "status_version": {
+            "type": "integer",
+            "description": "Optimistic concurrency version for the status field."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Client-supplied idempotency key."
+          },
+          "active_attempt_id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "FK to the currently active attempt."
+          },
+          "billing_mode": {
+            "type": "string",
+            "description": "Billing mode (`hosted` or `byo`)."
+          },
+          "input_json": {
+            "type": "string",
+            "description": "Serialized input JSON."
+          },
+          "output_json": {
+            "type": "string",
+            "description": "Serialized output JSON."
+          },
+          "error_json": {
+            "type": "string",
+            "description": "Serialized error JSON."
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp of creation."
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp of last update."
+          },
+          "finalized_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp when the response reached a terminal state."
+          },
+          "expires_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp of expiration (for async responses)."
+          },
+          "billing_status": {
+            "type": "string",
+            "enum": ["none", "completed", "failed"],
+            "description": "Billing pipeline status."
+          },
+          "webhook_url": {
+            "type": "string",
+            "description": "Webhook URL for async notifications."
+          },
+          "pricing_snapshot_json": {
+            "type": "string",
+            "description": "Frozen pricing snapshot at invocation time (JSON string)."
+          },
+          "estimated_quota": {
+            "type": "integer",
+            "description": "Pre-authorized quota amount reserved at dispatch time."
+          }
+        }
+      },
+      "BgResponseAttempt": {
+        "type": "object",
+        "description": "A single provider dispatch attempt for a response.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "attempt_id": {
+            "type": "string",
+            "description": "Public attempt ID (e.g. `att_abc123`)."
+          },
+          "response_id": {
+            "type": "string",
+            "description": "Parent response ID."
+          },
+          "attempt_no": {
+            "type": "integer",
+            "description": "1-based attempt number."
+          },
+          "adapter_name": {
+            "type": "string",
+            "description": "Name of the provider adapter used."
+          },
+          "provider_request_id": {
+            "type": "string",
+            "description": "Provider-assigned request/job ID."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["dispatching", "accepted", "running", "succeeded", "failed", "canceled", "abandoned", "unknown"],
+            "description": "Attempt lifecycle status."
+          },
+          "status_version": {
+            "type": "integer",
+            "description": "Optimistic concurrency version."
+          },
+          "error_json": {
+            "type": "string",
+            "description": "Serialized error JSON."
+          },
+          "started_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "accepted_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "completed_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "poll_after_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp after which this attempt should be polled."
+          },
+          "poll_count": {
+            "type": "integer",
+            "description": "Number of times this attempt has been polled."
+          },
+          "last_poll_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "BgUsageRecord": {
+        "type": "object",
+        "description": "A usage record tied to a response.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "usage_id": {
+            "type": "string",
+            "description": "Public usage record ID (e.g. `usg_abc123`)."
+          },
+          "response_id": {
+            "type": "string"
+          },
+          "org_id": {
+            "type": "integer"
+          },
+          "project_id": {
+            "type": "integer"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "billable_units": {
+            "type": "number",
+            "format": "double"
+          },
+          "billable_unit": {
+            "type": "string"
+          },
+          "input_units": {
+            "type": "number",
+            "format": "double"
+          },
+          "output_units": {
+            "type": "number",
+            "format": "double"
+          },
+          "raw_usage_json": {
+            "type": "string",
+            "description": "Raw provider usage JSON."
+          },
+          "canonical_usage_json": {
+            "type": "string",
+            "description": "Normalized canonical usage JSON."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "collecting", "normalized", "finalized", "voided"],
+            "description": "Usage record lifecycle status."
+          },
+          "version": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "BgBillingRecord": {
+        "type": "object",
+        "description": "A billing record tied to a response.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "billing_id": {
+            "type": "string",
+            "description": "Public billing record ID (e.g. `bill_abc123`)."
+          },
+          "response_id": {
+            "type": "string"
+          },
+          "org_id": {
+            "type": "integer"
+          },
+          "project_id": {
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "billing_mode": {
+            "type": "string",
+            "description": "`hosted` or `byo`."
+          },
+          "billable_unit": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit_price": {
+            "type": "number",
+            "format": "double"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double",
+            "description": "Calculated amount (quantity * unit_price)."
+          },
+          "pricing_snapshot_json": {
+            "type": "string",
+            "description": "Pricing snapshot at invocation time."
+          },
+          "billable_units": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "provider_cost": {
+            "type": "number",
+            "format": "double"
+          },
+          "platform_margin": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "estimated", "posted", "settled", "refunded", "voided"]
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "BgSession": {
+        "type": "object",
+        "description": "Database-level session record (used in admin endpoints).",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Public session ID (e.g. `sess_abc123`)."
+          },
+          "response_id": {
+            "type": "string",
+            "description": "Parent response ID."
+          },
+          "org_id": {
+            "type": "integer"
+          },
+          "project_id": {
+            "type": "integer"
+          },
+          "api_key_id": {
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["creating", "active", "idle", "suspended", "closed", "expired", "failed"]
+          },
+          "adapter_name": {
+            "type": "string",
+            "description": "Provider adapter handling this session."
+          },
+          "provider_session_id": {
+            "type": "string",
+            "description": "Provider-assigned session ID."
+          },
+          "usage_json": {
+            "type": "string"
+          },
+          "config_json": {
+            "type": "string"
+          },
+          "idle_timeout_sec": {
+            "type": "integer"
+          },
+          "max_duration_sec": {
+            "type": "integer"
+          },
+          "expires_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_action_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "closed_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "action_lock_version": {
+            "type": "integer"
+          },
+          "status_version": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "webhook_url": {
+            "type": "string"
+          }
+        }
+      },
+      "BgSessionAction": {
+        "type": "object",
+        "description": "A single action executed within a session.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "action_id": {
+            "type": "string",
+            "description": "Public action ID (e.g. `act_abc123`)."
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "action_type": {
+            "type": "string",
+            "description": "The type of action executed."
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "input_json": {
+            "type": "string"
+          },
+          "output_json": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Action status (e.g. `running`, `succeeded`, `failed`)."
+          },
+          "usage_json": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "completed_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "error_json": {
+            "type": "string"
+          }
+        }
+      },
+      "BgCapability": {
+        "type": "object",
+        "description": "A registered BaseGate capability.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "capability_name": {
+            "type": "string",
+            "description": "Unique capability name (e.g. `gpt-4o`, `browser-base`)."
+          },
+          "domain": {
+            "type": "string",
+            "description": "Capability domain (e.g. `llm`, `video`, `audio`, `image`, `browser`, `sandbox`)."
+          },
+          "action": {
+            "type": "string",
+            "description": "Capability action (e.g. `chat`, `generate`, `upscale`, `session`)."
+          },
+          "tier": {
+            "type": "string",
+            "description": "Capability tier (e.g. `standard`, `premium`)."
+          },
+          "supported_modes": {
+            "type": "string",
+            "description": "Comma-separated supported execution modes (e.g. `sync,stream`)."
+          },
+          "billable_unit": {
+            "type": "string",
+            "description": "Unit of billing (e.g. `token`, `minute`)."
+          },
+          "supports_cancel": {
+            "type": "boolean",
+            "description": "Whether this capability supports cancellation."
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Capability status (`active` or `inactive`)."
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "BgProject": {
+        "type": "object",
+        "description": "A tenant project in the BaseGate identity model.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "project_id": {
+            "type": "string",
+            "description": "Public project ID (e.g. `proj_abc123`)."
+          },
+          "org_id": {
+            "type": "integer",
+            "description": "Organization (tenant) ID."
+          },
+          "name": {
+            "type": "string",
+            "description": "Project name."
+          },
+          "description": {
+            "type": "string",
+            "description": "Project description."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "archived"],
+            "description": "Project status."
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "CreateProjectRequest": {
+        "type": "object",
+        "description": "Request body for creating a project.",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Project name."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional project description."
+          },
+          "org_id": {
+            "type": "integer",
+            "description": "Organization (tenant) ID to own the project."
+          }
+        }
+      },
+      "UpdateProjectRequest": {
+        "type": "object",
+        "description": "Request body for updating a project. All fields are optional; only non-empty fields are updated.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "archived"]
+          }
+        }
+      },
+      "AdminBgResponseDetail": {
+        "type": "object",
+        "description": "Full response detail including attempts, usage, and billing records.",
+        "allOf": [
+          { "$ref": "#/components/schemas/BgResponse" },
+          {
+            "type": "object",
+            "properties": {
+              "attempts": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/BgResponseAttempt" },
+                "description": "All dispatch attempts for this response."
+              },
+              "usage_records": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/BgUsageRecord" },
+                "description": "Usage records for this response."
+              },
+              "billing_records": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/BgBillingRecord" },
+                "description": "Billing records for this response."
+              }
+            },
+            "required": ["attempts", "usage_records", "billing_records"]
+          }
+        ]
+      },
+      "AdminBgSessionDetail": {
+        "type": "object",
+        "description": "Full session detail including all session actions.",
+        "allOf": [
+          { "$ref": "#/components/schemas/BgSession" },
+          {
+            "type": "object",
+            "properties": {
+              "actions": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/BgSessionAction" },
+                "description": "All actions executed in this session."
+              }
+            },
+            "required": ["actions"]
+          }
+        ]
+      },
+      "AdminBgUsageStats": {
+        "type": "object",
+        "description": "Aggregate usage statistics for the BaseGate dashboard.",
+        "properties": {
+          "total_requests": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total number of responses created."
+          },
+          "succeeded_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of responses in `succeeded` status."
+          },
+          "failed_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of responses in `failed` status."
+          },
+          "running_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of responses in non-terminal states (accepted, queued, running)."
+          },
+          "total_cost": {
+            "type": "number",
+            "format": "double",
+            "description": "Sum of billing amounts across all billing records."
+          },
+          "total_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Sum of billable_units from usage records where billable_unit is `token`."
+          },
+          "adapters": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AdapterCircuitInfo" },
+            "description": "Current circuit breaker states of all registered adapters."
+          }
+        }
+      },
+      "AdapterCircuitInfo": {
+        "type": "object",
+        "description": "Circuit breaker status for a single adapter.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Adapter name."
+          },
+          "state": {
+            "type": "string",
+            "description": "Circuit state (e.g. `closed`, `open`, `half-open`)."
+          },
+          "failure_count": {
+            "type": "integer",
+            "description": "Number of consecutive failures."
+          },
+          "cooldown_remaining_sec": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Seconds remaining in cooldown (only present when circuit is open)."
+          }
+        }
+      },
+      "AdminPageResponse_BgResponse": {
+        "type": "object",
+        "description": "Paginated admin response for BgResponse items.",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "integer",
+                "description": "Current page number."
+              },
+              "page_size": {
+                "type": "integer",
+                "description": "Number of items per page."
+              },
+              "total": {
+                "type": "integer",
+                "description": "Total number of items matching the query."
+              },
+              "items": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/BgResponse" }
+              }
+            },
+            "required": ["page", "page_size", "total", "items"]
+          }
+        },
+        "required": ["success", "message", "data"]
+      },
+      "AdminPageResponse_BgSession": {
+        "type": "object",
+        "description": "Paginated admin response for BgSession items.",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "integer"
+              },
+              "page_size": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "items": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/BgSession" }
+              }
+            },
+            "required": ["page", "page_size", "total", "items"]
+          }
+        },
+        "required": ["success", "message", "data"]
+      },
+      "AdminPageResponse_BgCapability": {
+        "type": "object",
+        "description": "Paginated admin response for BgCapability items.",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "integer"
+              },
+              "page_size": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "items": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/BgCapability" }
+              }
+            },
+            "required": ["page", "page_size", "total", "items"]
+          }
+        },
+        "required": ["success", "message", "data"]
+      },
+      "AdminPageResponse_BgProject": {
+        "type": "object",
+        "description": "Paginated admin response for BgProject items.",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "integer"
+              },
+              "page_size": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "items": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/BgProject" }
+              }
+            },
+            "required": ["page", "page_size", "total", "items"]
+          }
+        },
+        "required": ["success", "message", "data"]
+      }
+    }
+  }
+}
