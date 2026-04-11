@@ -27,6 +27,8 @@ func TestMain(m *testing.M) {
 		panic("failed to get sql.DB: " + err.Error())
 	}
 	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	sqlDB.SetConnMaxLifetime(0)
 
 	model.DB = db
 	model.LOG_DB = db
@@ -52,6 +54,7 @@ func TestMain(m *testing.M) {
 		&model.BgSession{},
 		&model.BgSessionAction{},
 		&model.BgWebhookEvent{},
+		&model.BgAuditLog{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}

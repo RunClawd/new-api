@@ -89,6 +89,11 @@ type BgResponse struct {
 	// EstimatedQuota is the pre-authorized quota amount reserved at dispatch time.
 	// Used by the state machine to settle (refund/charge difference) at terminal state.
 	EstimatedQuota       int              `json:"estimated_quota" gorm:"default:0"`
+	// ReservationBillingID tracks the estimated billing record created during Async/Session pre-auth.
+	// Empty for Sync/Stream paths. Used at terminal state to void the estimated record.
+	ReservationBillingID     string       `json:"reservation_billing_id" gorm:"type:varchar(64)"`
+	// ReservationLedgerEntryID tracks the hold ledger entry created during Async/Session pre-auth.
+	ReservationLedgerEntryID string       `json:"reservation_ledger_entry_id" gorm:"type:varchar(64)"`
 }
 
 func (BgResponse) TableName() string {

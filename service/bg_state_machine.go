@@ -278,14 +278,22 @@ func ApplyProviderEvent(responseID, attemptID string, event ProviderEvent) error
 			Update("billing_status", billingStatus).Error
 
 		// 7a-2. Pre-auth settlement: reconcile estimated vs actual quota
-		if resp.EstimatedQuota > 0 {
-			actualQuota := 0 // failed/canceled/expired = no actual cost
+		if resp.ReservationBillingID != "" {
+			// Async/Session path: void estimated record (always — regardless of success/failure)
+			if err := VoidEstimatedBilling(resp.ReservationBillingID, resp.ReservationLedgerEntryID); err != nil {
+				common.SysError(fmt.Sprintf("void estimated billing failed for %s: %v", responseID, err))
+			}
+			// Quota reconciliation
+			actualQuota := 0
 			if resp.Status == model.BgResponseStatusSucceeded && billingStatus == "completed" {
-				// Approximate actual quota from the billing amount
-				// This is a rough reverse of EstimateCost — actual billing was handled by FinalizeBilling
-				// For settlement, we only care about the delta between estimated and 0 (non-succeeded)
-				// or estimated and a rough actual (succeeded). The precise billing is in bg_billing_records.
-				actualQuota = resp.EstimatedQuota // assume estimate was close enough for succeeded
+				actualQuota = resp.EstimatedQuota // approximate (see follow-up: reverse from actual billing)
+			}
+			SettleReservation(resp.OrgID, resp.EstimatedQuota, actualQuota)
+		} else if resp.EstimatedQuota > 0 {
+			// Sync/Stream path: only quota reconciliation (existing logic, unchanged)
+			actualQuota := 0
+			if resp.Status == model.BgResponseStatusSucceeded && billingStatus == "completed" {
+				actualQuota = resp.EstimatedQuota
 			}
 			SettleReservation(resp.OrgID, resp.EstimatedQuota, actualQuota)
 		}

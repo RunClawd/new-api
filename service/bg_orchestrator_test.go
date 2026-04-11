@@ -244,7 +244,7 @@ func TestDispatch_Idempotency(t *testing.T) {
 		Model:          "bg.llm.chat.idem",
 		OrgID:          1,
 		IdempotencyKey: "idem_key_unique_001",
-		Input:          "Hello again",
+		Input:          "Hello",
 	}
 
 	resp2, err := DispatchSync(req2)

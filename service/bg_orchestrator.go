@@ -69,9 +69,9 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 	pricingSnapshot := LookupPricing(req.Model, req.BillingContext.BillingMode)
 	snapshotJSON, _ := common.Marshal(pricingSnapshot)
 
-	// 3a. Pre-authorization: estimate cost and reserve quota
+	// 3a. Pre-authorization: estimate cost and reserve quota (Sync = quota-only, no estimated billing record)
 	estimatedQuota := EstimateCost(pricingSnapshot, req.Input)
-	if err := TryReserveQuota(req.OrgID, estimatedQuota); err != nil {
+	if err := ReserveQuota(req.OrgID, estimatedQuota); err != nil {
 		return nil, err // ErrInsufficientQuota
 	}
 
@@ -210,10 +210,15 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 	pricingSnapshot := LookupPricing(req.Model, req.BillingContext.BillingMode)
 	snapshotJSON, _ := common.Marshal(pricingSnapshot)
 
-	// 3a. Pre-authorization: estimate cost and reserve quota
+	// 3a. Pre-authorization: estimate cost and reserve quota (Async = quota + estimated billing record)
 	estimatedQuota := EstimateCost(pricingSnapshot, req.Input)
-	if err := TryReserveQuota(req.OrgID, estimatedQuota); err != nil {
-		return nil, err // ErrInsufficientQuota
+	reservation, err := ReserveQuotaWithBillingHold(
+		req.OrgID, req.ProjectID,
+		req.ResponseID, req.Model,
+		pricingSnapshot, estimatedQuota,
+	)
+	if err != nil {
+		return nil, err // ErrInsufficientQuota or billing record failure
 	}
 
 	// 4. Create response record
@@ -230,9 +235,12 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 		StatusVersion:       1,
 		IdempotencyKey:      req.IdempotencyKey,
 		BillingMode:         req.BillingContext.BillingMode,
-		PricingSnapshotJSON: string(snapshotJSON),
-		CreatedAt:           now,
-		UpdatedAt:           now,
+		PricingSnapshotJSON:      string(snapshotJSON),
+		EstimatedQuota:           estimatedQuota,
+		ReservationBillingID:     reservation.BillingID,
+		ReservationLedgerEntryID: reservation.LedgerEntryID,
+		CreatedAt:                now,
+		UpdatedAt:                now,
 	}
 	if bgResp.BillingMode == "" {
 		bgResp.BillingMode = "hosted"
@@ -241,6 +249,9 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 	bgResp.InputJSON = string(inputJSON)
 
 	if err := bgResp.Insert(); err != nil {
+		// Clean up estimated billing + refund quota on insert failure
+		_ = VoidEstimatedBilling(reservation.BillingID, reservation.LedgerEntryID)
+		SettleReservation(req.OrgID, estimatedQuota, 0)
 		return nil, fmt.Errorf("failed to create response record: %w", err)
 	}
 

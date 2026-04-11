@@ -83,6 +83,42 @@ func (b *BgBillingRecord) Insert() error {
 	return DB.Create(b).Error
 }
 
+// UpdateBillingStatus atomically transitions a billing record from fromStatus to toStatus.
+// Uses CAS semantics: WHERE billing_id = ? AND status = ?
+// Returns (true, nil) on success, (false, nil) if CAS fails (status already changed).
+func UpdateBillingStatus(billingID string, fromStatus, toStatus BgBillingStatus) (bool, error) {
+	result := DB.Model(&BgBillingRecord{}).
+		Where("billing_id = ? AND status = ?", billingID, fromStatus).
+		Update("status", toStatus)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+// GetBillingRecordByBillingID retrieves a billing record by its billing_id.
+func GetBillingRecordByBillingID(billingID string) (*BgBillingRecord, error) {
+	var record BgBillingRecord
+	err := DB.Where("billing_id = ?", billingID).First(&record).Error
+	if err != nil {
+		return nil, err
+	}
+	return &record, nil
+}
+
+// GetBillingRecordByResponseID retrieves the first billing record for a response.
+// Used by reconciliation to check if FinalizeBilling already ran (idempotency guard).
+// Returns nil, nil if no record found.
+func GetBillingRecordByResponseID(responseID string) (*BgBillingRecord, error) {
+	var record BgBillingRecord
+	err := DB.Where("response_id = ? AND status != ?", responseID, BgBillingStatusEstimated).
+		First(&record).Error
+	if err != nil {
+		return nil, nil // not found is normal — not an error
+	}
+	return &record, nil
+}
+
 // BgLedgerEntry represents the bg_ledger_entries table.
 type BgLedgerEntry struct {
 	ID            int64   `json:"id" gorm:"primaryKey;autoIncrement"`
@@ -106,3 +142,26 @@ func (BgLedgerEntry) TableName() string {
 func (l *BgLedgerEntry) Insert() error {
 	return DB.Create(l).Error
 }
+
+// UpdateLedgerEntryStatus atomically transitions a ledger entry from fromStatus to toStatus.
+// Uses CAS semantics: WHERE ledger_entry_id = ? AND status = ?
+func UpdateLedgerEntryStatus(ledgerEntryID string, fromStatus, toStatus string) (bool, error) {
+	result := DB.Model(&BgLedgerEntry{}).
+		Where("ledger_entry_id = ? AND status = ?", ledgerEntryID, fromStatus).
+		Update("status", toStatus)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+// GetLedgerEntryByBillingID retrieves the ledger entry associated with a billing record.
+func GetLedgerEntryByBillingID(billingID string) (*BgLedgerEntry, error) {
+	var entry BgLedgerEntry
+	err := DB.Where("billing_id = ?", billingID).First(&entry).Error
+	if err != nil {
+		return nil, err
+	}
+	return &entry, nil
+}
+

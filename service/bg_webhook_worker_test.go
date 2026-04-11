@@ -24,6 +24,12 @@ func setupWebhookWorkerTestDB(t *testing.T) *gorm.DB {
 	common.UsingMySQL = false
 	common.UsingPostgreSQL = false
 
+	// Save original DB references so we can restore them after this test.
+	// Without this, model.DB would be left pointing at the closed webhook test DB,
+	// causing "sql: database is closed" for all subsequent tests in the suite.
+	origDB := model.DB
+	origLogDB := model.LOG_DB
+
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -40,6 +46,9 @@ func setupWebhookWorkerTestDB(t *testing.T) *gorm.DB {
 	}
 
 	t.Cleanup(func() {
+		// Restore original DB before closing this test's DB
+		model.DB = origDB
+		model.LOG_DB = origLogDB
 		sqlDB, err := db.DB()
 		if err == nil {
 			_ = sqlDB.Close()

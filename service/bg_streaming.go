@@ -51,6 +51,13 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 	snapshotJSON, _ := common.Marshal(pricingSnapshot)
 	bgResp.PricingSnapshotJSON = string(snapshotJSON)
 
+	// Pre-auth: Sync-equivalent quota reservation (Stream = Sync lifecycle)
+	estimatedQuota := EstimateCost(pricingSnapshot, req.Input)
+	if err := ReserveQuota(req.OrgID, estimatedQuota); err != nil {
+		return err // 402 insufficient quota
+	}
+	bgResp.EstimatedQuota = estimatedQuota
+
 	if err := bgResp.Insert(); err != nil {
 		return fmt.Errorf("failed to create response record: %w", err)
 	}

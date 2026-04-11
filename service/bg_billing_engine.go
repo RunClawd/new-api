@@ -216,8 +216,81 @@ func FinalizeBilling(
 		common.SysLog(fmt.Sprintf("billing: finalized %s — %.2f %s (%.4f units @ %.4f/%s)",
 			responseID, amount, pricing.Currency,
 			canonicalUsage.BillableUnits, pricing.UnitPrice, canonicalUsage.BillableUnit))
+
+		// BYO path (Phase 13): when billing_mode == "byo", use existing Amount field
+		// as platform fee, set ProviderCost=0, PlatformMargin=Amount.
+		// No new PlatformFee column needed — reuse existing fields.
+		// if billingMode == "byo" { return finalizeBYOBilling(...) }
+
 		return nil
 	})
+}
+
+// RefundBilling creates a refund for a posted/settled billing record.
+// Creates a new billing record (status=refunded, linked to original via response_id)
+// and a credit ledger entry. Also refunds quota to the org.
+// Returns error if original billing is not in posted/settled status.
+func RefundBilling(billingID string, orgID int, reason string) error {
+	// 1. Load original billing record
+	original, err := model.GetBillingRecordByBillingID(billingID)
+	if err != nil {
+		return fmt.Errorf("refund: billing record %s not found: %w", billingID, err)
+	}
+
+	// 2. Validate status: must be posted or settled
+	if original.Status != model.BgBillingStatusPosted && original.Status != model.BgBillingStatusSettled {
+		return fmt.Errorf("refund: billing %s has status %s, must be posted or settled", billingID, original.Status)
+	}
+
+	// 3. Create refund billing record
+	refundBilling := &model.BgBillingRecord{
+		BillingID:    relaycommon.GenerateBillingID(),
+		ResponseID:   original.ResponseID,
+		OrgID:        original.OrgID,
+		ProjectID:    original.ProjectID,
+		Model:        original.Model,
+		Provider:     original.Provider,
+		BillingMode:  original.BillingMode,
+		BillableUnit: original.BillableUnit,
+		Quantity:     original.Quantity,
+		UnitPrice:    original.UnitPrice,
+		Amount:       -original.Amount, // negative for refund
+		Currency:     original.Currency,
+		Status:       model.BgBillingStatusRefunded,
+		CreatedAt:    time.Now().Unix(),
+	}
+	if err := refundBilling.Insert(); err != nil {
+		return fmt.Errorf("refund: failed to create refund record: %w", err)
+	}
+
+	// 4. Create credit ledger entry
+	ledgerEntry := &model.BgLedgerEntry{
+		LedgerEntryID: relaycommon.GenerateLedgerEntryID(),
+		OrgID:         orgID,
+		ResponseID:    original.ResponseID,
+		BillingID:     refundBilling.BillingID,
+		EntryType:     "refund",
+		Direction:     "credit",
+		Amount:        original.Amount,
+		Currency:      original.Currency,
+		Status:        "committed",
+		CreatedAt:     time.Now().Unix(),
+	}
+	if err := ledgerEntry.Insert(); err != nil {
+		return fmt.Errorf("refund: failed to create credit ledger entry: %w", err)
+	}
+
+	// 5. Refund quota
+	quotaRefund := int(original.Amount * 500000) // reverse of EstimateCost conversion
+	if quotaRefund > 0 {
+		if err := model.IncreaseUserQuota(orgID, quotaRefund, false); err != nil {
+			common.SysError(fmt.Sprintf("refund: failed to refund %d quota to org %d: %v", quotaRefund, orgID, err))
+		}
+	}
+
+	common.SysLog(fmt.Sprintf("refund: created refund %s for billing %s (%.4f %s, reason: %s)",
+		refundBilling.BillingID, billingID, original.Amount, original.Currency, reason))
+	return nil
 }
 
 // buildCanonicalUsage converts raw provider usage into canonical form (pure computation, no DB).
