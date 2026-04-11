@@ -178,3 +178,109 @@ func GetBgLedgerEntriesAdmin(orgID int, startTimestamp, endTimestamp int64, star
 	err = tx.Order("id desc").Limit(num).Offset(startIdx).Find(&entries).Error
 	return entries, total, err
 }
+
+// GetBgAuditLogsAdmin fetches a paginated list of BgAuditLogs.
+func GetBgAuditLogsAdmin(orgID int, eventType, responseID, requestID string, startTimestamp, endTimestamp int64, startIdx, num int) (logs []*BgAuditLog, total int64, err error) {
+	tx := DB.Model(&BgAuditLog{})
+
+	if orgID > 0 {
+		tx = tx.Where("org_id = ?", orgID)
+	}
+	if eventType != "" {
+		tx = tx.Where("event_type = ?", eventType)
+	}
+	if responseID != "" {
+		tx = tx.Where("response_id = ?", responseID)
+	}
+	if requestID != "" {
+		tx = tx.Where("request_id = ?", requestID)
+	}
+	if startTimestamp > 0 {
+		tx = tx.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp > 0 {
+		tx = tx.Where("created_at <= ?", endTimestamp)
+	}
+
+	err = tx.Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	err = tx.Order("id desc").Limit(num).Offset(startIdx).Find(&logs).Error
+	return logs, total, err
+}
+
+// BgWebhookStatsResult holds aggregated webhook delivery statistics.
+type BgWebhookStatsResult struct {
+	Total     int64 `json:"total"`
+	Delivered int64 `json:"delivered"`
+	Pending   int64 `json:"pending"`
+	Retrying  int64 `json:"retrying"`
+	Dead      int64 `json:"dead"`
+}
+
+// GetBgWebhookEventsAdmin fetches a paginated list of BgWebhookEvents.
+func GetBgWebhookEventsAdmin(orgID int, deliveryStatus, responseID string, startTimestamp, endTimestamp int64, startIdx, num int) (events []*BgWebhookEvent, total int64, err error) {
+	tx := DB.Model(&BgWebhookEvent{})
+
+	if orgID > 0 {
+		tx = tx.Where("org_id = ?", orgID)
+	}
+	if deliveryStatus != "" {
+		tx = tx.Where("delivery_status = ?", deliveryStatus)
+	}
+	if responseID != "" {
+		tx = tx.Where("response_id = ?", responseID)
+	}
+	if startTimestamp > 0 {
+		tx = tx.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp > 0 {
+		tx = tx.Where("created_at <= ?", endTimestamp)
+	}
+
+	err = tx.Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	err = tx.Order("id desc").Limit(num).Offset(startIdx).Find(&events).Error
+	return events, total, err
+}
+
+// GetBgWebhookStatsAdmin returns aggregated delivery status counts.
+func GetBgWebhookStatsAdmin(orgID int) (*BgWebhookStatsResult, error) {
+	type row struct {
+		DeliveryStatus string
+		Count          int64
+	}
+	tx := DB.Model(&BgWebhookEvent{})
+	if orgID > 0 {
+		tx = tx.Where("org_id = ?", orgID)
+	}
+
+	var rows []row
+	err := tx.Select("delivery_status, COUNT(*) as count").
+		Group("delivery_status").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	result := &BgWebhookStatsResult{}
+	for _, r := range rows {
+		result.Total += r.Count
+		switch r.DeliveryStatus {
+		case WebhookStatusDelivered:
+			result.Delivered = r.Count
+		case WebhookStatusPending:
+			result.Pending = r.Count
+		case WebhookStatusRetrying:
+			result.Retrying = r.Count
+		case WebhookStatusDead:
+			result.Dead = r.Count
+		}
+	}
+	return result, nil
+}

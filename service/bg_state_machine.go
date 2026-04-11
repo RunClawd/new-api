@@ -236,7 +236,12 @@ func ApplyProviderEvent(responseID, attemptID string, event ProviderEvent) error
 	// 7. If terminal: finalize billing + trigger webhook outbox
 	if isTerminal {
 		common.SysLog(fmt.Sprintf("state machine: response %s finalized with status %s", responseID, newResponseStatus))
-		
+
+		// Audit log: response_finalized
+		_ = model.RecordBgAuditLog(resp.OrgID, resp.RequestID, responseID, "response_finalized", map[string]interface{}{
+			"status": string(newResponseStatus),
+		})
+
 		// 7a. Billing pipeline (transactional: usage + billing + ledger)
 		// Only bill for succeeded responses (failed/canceled/expired = no charge)
 		billingStatus := "none"

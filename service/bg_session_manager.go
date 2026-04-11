@@ -292,6 +292,12 @@ func CloseSession(sessionID string) (*dto.BGSessionResponse, error) {
 		_ = EnqueueWebhookEvent(bgSess.SessionID, bgSess.OrgID, "session.closed", payload)
 	}
 
+	// Audit log: session_closed
+	_ = model.RecordBgAuditLog(bgSess.OrgID, "", bgSess.SessionID, "session_closed", map[string]interface{}{
+		"adapter_name": bgSess.AdapterName,
+		"model":        bgSess.Model,
+	})
+
 	return buildSessionResponseFromDB(bgSess)
 }
 

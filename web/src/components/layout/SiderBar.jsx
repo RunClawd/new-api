@@ -56,6 +56,10 @@ const routerMap = {
   bgSessions: '/console/bg-sessions',
   bgProjects: '/console/bg-projects',
   bgBilling: '/console/bg-billing',
+  bgDashboard: '/console/bg-dashboard',
+  bgAudit: '/console/bg-audit',
+  bgWebhooks: '/console/bg-webhooks',
+  bgPlayground: '/console/bg-playground',
 };
 
 const SiderBar = ({ onNavigate = () => {} }) => {
@@ -196,7 +200,13 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         to: '/setting',
         className: isRoot() ? '' : 'tableHiddle',
       },
-      // BaseGate Admin entries
+      // BaseGate Admin entries — Dashboard first (置顶)
+      {
+        text: t('BaseGate 总览'),
+        itemKey: 'bgDashboard',
+        to: '/bg-dashboard',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
       {
         text: t('BaseGate 用量'),
         itemKey: 'bgUsage',
@@ -237,6 +247,24 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         text: t('BaseGate 计费'),
         itemKey: 'bgBilling',
         to: '/bg-billing',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('BaseGate 审计'),
+        itemKey: 'bgAudit',
+        to: '/bg-audit',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('BaseGate Webhooks'),
+        itemKey: 'bgWebhooks',
+        to: '/bg-webhooks',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('BaseGate 调试'),
+        itemKey: 'bgPlayground',
+        to: '/bg-playground',
         className: isAdmin() ? '' : 'tableHiddle',
       },
     ];

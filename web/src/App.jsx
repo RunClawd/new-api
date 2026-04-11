@@ -56,6 +56,10 @@ import BgAdaptersPage from './pages/BgAdapters';
 import BgSessionsPage from './pages/BgSessions';
 import BgProjectsPage from './pages/BgProjects';
 import BgBillingPage from './pages/BgBilling';
+import BgDashboardPage from './pages/BgDashboard';
+import BgAuditPage from './pages/BgAudit';
+import BgWebhooksPage from './pages/BgWebhooks';
+import BgPlaygroundPage from './pages/BgPlayground';
 
 const Home = lazy(() => import('./pages/Home'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -437,6 +441,38 @@ function App() {
           element={
             <AdminRoute>
               <BgBillingPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/bg-dashboard'
+          element={
+            <AdminRoute>
+              <BgDashboardPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/bg-audit'
+          element={
+            <AdminRoute>
+              <BgAuditPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/bg-webhooks'
+          element={
+            <AdminRoute>
+              <BgWebhooksPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/bg-playground'
+          element={
+            <AdminRoute>
+              <BgPlaygroundPage />
             </AdminRoute>
           }
         />

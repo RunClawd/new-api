@@ -81,6 +81,9 @@ import {
   Briefcase,
   Timer,
   Receipt,
+  ShieldCheck,
+  Webhook,
+  Beaker,
 } from 'lucide-react';
 import {
   SiAtlassian,
@@ -167,6 +170,14 @@ export function getLucideIcon(key, selected = false) {
       return <Briefcase {...commonProps} color={iconColor} />;
     case 'bgBilling':
       return <Receipt {...commonProps} color={iconColor} />;
+    case 'bgDashboard':
+      return <LayoutDashboard {...commonProps} color={iconColor} />;
+    case 'bgAudit':
+      return <ShieldCheck {...commonProps} color={iconColor} />;
+    case 'bgWebhooks':
+      return <Webhook {...commonProps} color={iconColor} />;
+    case 'bgPlayground':
+      return <Beaker {...commonProps} color={iconColor} />;
     default:
       return <CircleUser {...commonProps} color={iconColor} />;
   }

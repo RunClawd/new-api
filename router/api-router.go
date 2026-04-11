@@ -267,6 +267,10 @@ func SetApiRouter(router *gin.Engine) {
 			bgAdminRoute.POST("/adapters/:name/reset", controller.AdminResetBgCircuit)
 			bgAdminRoute.GET("/billing/records", controller.AdminListBgBillingRecords)
 			bgAdminRoute.GET("/billing/ledger", controller.AdminListBgLedgerEntries)
+			bgAdminRoute.GET("/audit", controller.AdminListBgAuditLogs)
+			bgAdminRoute.GET("/webhooks", controller.AdminListBgWebhookEvents)
+			bgAdminRoute.GET("/webhooks/stats", controller.AdminGetBgWebhookStats)
+			bgAdminRoute.POST("/webhooks/:id/retry", controller.AdminRetryBgWebhookEvent)
 		}
 
 		tokenRoute := apiRouter.Group("/token")

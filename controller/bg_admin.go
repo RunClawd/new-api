@@ -352,3 +352,89 @@ func AdminListBgLedgerEntries(c *gin.Context) {
 	pageInfo.SetItems(entries)
 	common.ApiSuccess(c, pageInfo)
 }
+
+// AdminListBgAuditLogs handles GET /api/bg/audit
+func AdminListBgAuditLogs(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	startIdx := pageInfo.GetStartIdx()
+	num := pageInfo.GetPageSize()
+
+	orgID, _ := strconv.Atoi(c.Query("org_id"))
+	eventType := c.Query("event_type")
+	responseID := c.Query("response_id")
+	requestID := c.Query("request_id")
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+
+	logs, total, err := model.GetBgAuditLogsAdmin(orgID, eventType, responseID, requestID, startTimestamp, endTimestamp, startIdx, num)
+	if err != nil {
+		common.ApiErrorMsg(c, "Failed to list audit logs: "+err.Error())
+		return
+	}
+
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(logs)
+	common.ApiSuccess(c, pageInfo)
+}
+
+// AdminListBgWebhookEvents handles GET /api/bg/webhooks
+func AdminListBgWebhookEvents(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	startIdx := pageInfo.GetStartIdx()
+	num := pageInfo.GetPageSize()
+
+	orgID, _ := strconv.Atoi(c.Query("org_id"))
+	deliveryStatus := c.Query("delivery_status")
+	responseID := c.Query("response_id")
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+
+	events, total, err := model.GetBgWebhookEventsAdmin(orgID, deliveryStatus, responseID, startTimestamp, endTimestamp, startIdx, num)
+	if err != nil {
+		common.ApiErrorMsg(c, "Failed to list webhook events: "+err.Error())
+		return
+	}
+
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(events)
+	common.ApiSuccess(c, pageInfo)
+}
+
+// AdminGetBgWebhookStats handles GET /api/bg/webhooks/stats
+func AdminGetBgWebhookStats(c *gin.Context) {
+	orgID, _ := strconv.Atoi(c.Query("org_id"))
+
+	stats, err := model.GetBgWebhookStatsAdmin(orgID)
+	if err != nil {
+		common.ApiErrorMsg(c, "Failed to get webhook stats: "+err.Error())
+		return
+	}
+
+	common.ApiSuccess(c, stats)
+}
+
+// AdminRetryBgWebhookEvent handles POST /api/bg/webhooks/:id/retry
+func AdminRetryBgWebhookEvent(c *gin.Context) {
+	eventID := c.Param("id")
+	if eventID == "" {
+		common.ApiErrorMsg(c, "event_id is required")
+		return
+	}
+
+	result := model.DB.Model(&model.BgWebhookEvent{}).
+		Where("event_id = ?", eventID).
+		Updates(map[string]interface{}{
+			"delivery_status": model.WebhookStatusPending,
+			"next_retry_at":   0,
+		})
+	if result.Error != nil {
+		common.ApiErrorMsg(c, "Failed to retry webhook: "+result.Error.Error())
+		return
+	}
+	if result.RowsAffected == 0 {
+		common.ApiErrorMsg(c, "webhook event not found")
+		return
+	}
+
+	common.ApiSuccess(c, "ok")
+}

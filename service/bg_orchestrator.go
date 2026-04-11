@@ -360,6 +360,12 @@ func CancelResponse(responseID string) (*dto.BaseGateResponse, error) {
 	}
 
 	bgResp, _ = model.GetBgResponseByResponseID(responseID)
+
+	// Audit log: response_canceled
+	_ = model.RecordBgAuditLog(bgResp.OrgID, bgResp.RequestID, responseID, "response_canceled", map[string]interface{}{
+		"status": string(bgResp.Status),
+	})
+
 	return buildResponseFromDB(bgResp)
 }
 
