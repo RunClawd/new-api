@@ -150,20 +150,134 @@ Examples:
 - `bg.video.upscale.standard` → (async provider)
 - `bg.browser.session.standard` → (session provider)
 
-## Billing Pipeline
+## Pricing Model: Dual-Layer, Capability-First
+
+> **Implementation status legend**: ✅ Implemented · 🔜 Planned
+
+### Design Principle
+
+> Users pay for **capabilities**, not providers.
+> The platform accounts costs by **providers** internally.
+
+This means:
+- **External (user-facing)**: a single price per capability tier, independent of which provider handles the request
+- **Internal (platform accounting)**: per-provider cost tracking for margin analysis and settlement
+
+### Why Not Provider-Based Pricing
+
+Provider-based pricing (user sees `gpt-5.4-mini = $0.003/1K tokens`) violates the core abstraction:
+- Exposes provider details, locking users to specific vendors
+- Makes intelligent routing meaningless (users demand to pick the cheapest provider)
+- Creates friction when replacing or adding providers
+
+### Why Not Pure Capability Pricing Without Cost Tracking
+
+Pure capability pricing without per-provider cost accounting creates uncontrolled margin risk:
+- If `bg.llm.chat.standard` routes to Provider A ($0.003) vs Provider B ($0.008), the platform margin swings 2.6x on the same price
+
+### The Dual-Layer Solution
+
+**Layer 1 — Capability Pricing (user-facing)** ✅
+
+Stored in `BgCapability` table. Users see one price per capability:
+
+```
+bg.llm.chat.fast     = $0.002 / 1K tokens
+bg.llm.chat.standard = $0.005 / 1K tokens
+bg.llm.chat.pro      = $0.015 / 1K tokens
+bg.video.generate.standard = $0.05 / request
+bg.sandbox.session.standard = $0.01 / minute
+```
+
+**Layer 2 — Provider Cost (platform-internal)** 🔜
+
+Stored in `CapabilityBinding` table. Each binding records the provider's actual cost (currently `CapabilityBinding` exists but does not yet carry a `cost_per_unit` field):
+
+```
+bg.llm.chat.standard → gpt-5.4-mini    cost = $0.003 / 1K tokens
+bg.llm.chat.standard → claude-4-haiku  cost = $0.004 / 1K tokens
+bg.llm.chat.pro      → gpt-5.4         cost = $0.010 / 1K tokens
+bg.llm.chat.pro      → claude-4-opus   cost = $0.012 / 1K tokens
+```
+
+**BillingRecord captures both layers** (partially ✅, target fields 🔜):
+
+Current implemented fields: `amount`, `total_amount`, `provider_cost`, `platform_margin`.
+Target schema uses `customer_charge` as the user-facing field name (rename planned):
+
+```json
+{
+  "billing_mode": "hosted",
+  "customer_charge": 0.005,
+  "provider_cost": 0.003,
+  "platform_margin": 0.002,
+  "currency": "usd"
+}
+```
+
+### BYO (Bring Your Own Key) Pricing 🔜
+
+> BYO billing mode is recognised by `LookupPricing` (returns `UnitPrice: 0`), but the multi-mode fee structure below is not yet implemented.
+
+When users provide their own provider credentials, the platform charges only a service fee:
+
+```json
+{
+  "billing_mode": "byo",
+  "customer_charge": 0.001,
+  "provider_cost": 0.000,
+  "platform_margin": 0.001
+}
+```
+
+BYO pricing can be:
+- Fixed fee per request (`per_call`) 🔜
+- Percentage of estimated provider cost (`percentage`) 🔜
+- Flat monthly fee (`flat_monthly`) 🔜
+
+### Data Model
+
+```
+BgCapability (capability pricing) ✅
+├── capability_name    "bg.llm.chat.standard"
+├── billable_unit      "token"
+├── unit_price         0.000005          ← user-facing price per unit
+└── currency           "usd"
+
+CapabilityBinding (provider cost) ✅ structure / 🔜 cost_per_unit field
+├── capability_pattern "bg.llm.chat.standard"
+├── adapter_name       "openai_native_ch1"
+├── provider           "openai"
+├── upstream_model     "gpt-5.4-mini"
+├── cost_per_unit      0.000003          ← 🔜 provider cost per unit (not yet in struct)
+└── weight / priority                    ← routing parameters ✅
+```
+
+### Billing Pipeline
 
 ```
 Provider returns RawUsage
-  → buildCanonicalUsage()     (normalize to billable units)
-  → FinalizeBilling()         (single DB transaction)
-    ├ INSERT bg_usage_records
-    ├ INSERT bg_billing_records  (quantity × unit_price)
-    └ INSERT bg_ledger_entries   (debit entry)
+  → buildCanonicalUsage()          ✅ (normalize to billable units)
+  → LookupPricing(capability)      ✅ (get user-facing price from BgCapability)
+  → LookupProviderCost(binding)    🔜 (planned; currently folded into LookupPricing)
+  → FinalizeBilling()              ✅ (single DB transaction)
+    ├ INSERT bg_usage_records       ✅ (resource truth)
+    ├ INSERT bg_billing_records     ✅ (amount + provider_cost + margin)
+    └ INSERT bg_ledger_entries      ✅ (debit entry)
 ```
 
-- Pricing resolved via `LookupPricing()` bridging to existing `ratio_setting`
+### Pricing Snapshot Immutability
+
+At invocation time, the capability price and provider cost are frozen into a `PricingSnapshot` on the response record. This prevents price drift on long-running async tasks — the customer is always billed at the price that was active when they submitted the request.
+
+- ✅ `PricingSnapshot` struct with `UnitPrice` (user-facing) — frozen at invocation in orchestrator & streaming
+- 🔜 Add `CostPerUnit` (provider cost) to `PricingSnapshot` for full dual-layer snapshot
+
+### Additional Notes
+
 - Billing failure does NOT roll back response state (marked `billing_status=failed` for retry)
 - Session billing aggregates `session_minutes` + `action_count` at close/expire
+- Four-layer accounting separation is maintained: Response (execution) → Usage (resource) → Billing (pricing) → Ledger (money)
 
 ## Routing & Fallback
 
