@@ -238,3 +238,15 @@ func StartPolicyCacheRefresher(interval time.Duration) {
 		}
 	}()
 }
+
+// InitPolicyCacheForTest marks the policy cache as initialized with empty policies.
+// Used by test packages (e.g. controller E2E tests) that need ResolveRoute to work
+// but don't have a live DB. With no policies, all evaluations default to ALLOW and
+// routing falls back to LookupAdapters.
+func InitPolicyCacheForTest() {
+	policyMu.Lock()
+	capabilityPolicies = nil
+	routingPolicies = nil
+	policyMu.Unlock()
+	cacheInitialized.Store(true)
+}

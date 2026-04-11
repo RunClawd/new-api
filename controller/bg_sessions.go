@@ -1,9 +1,11 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common" // Contains CanonicalRequest
 	"github.com/QuantumNous/new-api/service"
@@ -31,6 +33,7 @@ func PostSessions(c *gin.Context) {
 
 	// Construct CanonicalRequest
 	canonicalReq := &relaycommon.CanonicalRequest{
+		RequestID:  relaycommon.GenerateResponseID(),
 		ResponseID: relaycommon.GenerateResponseID(),
 		Model:      basegateReq.Model,
 		Input:      basegateReq.Input,
@@ -39,6 +42,18 @@ func PostSessions(c *gin.Context) {
 		ApiKeyID:   apiKeyID,
 		EndUserID:  basegateReq.Metadata["user_id"],
 		Metadata:   basegateReq.Metadata,
+	}
+
+	// Capability policy check — error = engine failure (500), !allowed = policy deny (403)
+	allowed, reason, policyErr := service.EvaluateCapabilityAccess(orgID, projectID, apiKeyID, basegateReq.Model)
+	if policyErr != nil {
+		common.SysError("PostSessions policy evaluation failed: " + policyErr.Error())
+		writeBGError(c, policyErr) // no sentinel match -> defaults to 500 internal_error
+		return
+	}
+	if !allowed {
+		writeBGError(c, fmt.Errorf("%w: %s", service.ErrCapabilityDenied, reason))
+		return
 	}
 
 	sessionResp, err := service.CreateSession(canonicalReq)

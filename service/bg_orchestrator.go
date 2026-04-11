@@ -59,8 +59,11 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 		return buildResponseFromDB(existing)
 	}
 
-	// 2. Lookup adapters
-	adapters := basegate.LookupAdapters(req.Model)
+	// 2. Lookup adapters via routing policy engine
+	adapters, routeErr := ResolveRoute(req.OrgID, req.ProjectID, req.ApiKeyID, req.Model)
+	if routeErr != nil {
+		return nil, fmt.Errorf("route resolution failed for %s: %w", req.Model, routeErr)
+	}
 	if len(adapters) == 0 {
 		return nil, fmt.Errorf("no adapters found for model: %s", req.Model)
 	}
@@ -200,8 +203,11 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 		return buildResponseFromDB(existing)
 	}
 
-	// 2. Lookup adapters
-	adapters := basegate.LookupAdapters(req.Model)
+	// 2. Lookup adapters via routing policy engine
+	adapters, routeErr := ResolveRoute(req.OrgID, req.ProjectID, req.ApiKeyID, req.Model)
+	if routeErr != nil {
+		return nil, fmt.Errorf("route resolution failed for %s: %w", req.Model, routeErr)
+	}
 	if len(adapters) == 0 {
 		return nil, fmt.Errorf("no adapters found for model: %s", req.Model)
 	}

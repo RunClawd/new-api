@@ -22,8 +22,11 @@ var (
 
 // CreateSession initiates a new stateful session using a SessionCapableAdapter.
 func CreateSession(req *relaycommon.CanonicalRequest) (*dto.BGSessionResponse, error) {
-	// Lookup adapters
-	adapters := basegate.LookupAdapters(req.Model)
+	// Lookup adapters via routing policy engine
+	adapters, routeErr := ResolveRoute(req.OrgID, req.ProjectID, req.ApiKeyID, req.Model)
+	if routeErr != nil {
+		return nil, fmt.Errorf("route resolution failed for %s: %w", req.Model, routeErr)
+	}
 	if len(adapters) == 0 {
 		return nil, fmt.Errorf("no adapters found for model: %s", req.Model)
 	}

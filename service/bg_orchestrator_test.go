@@ -54,6 +54,7 @@ func (m *mockProviderAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan 
 func TestDispatchSync_Success(t *testing.T) {
 	truncateBgTables(t)
 	basegate.ClearRegistry()
+	cacheInitialized.Store(true) // Enable routing engine (no policies = fallback to LookupAdapters)
 
 	// Register a mock adapter
 	adapter := &mockProviderAdapter{
@@ -101,6 +102,7 @@ func TestDispatchSync_Success(t *testing.T) {
 func TestDispatchSync_AdapterNotFound(t *testing.T) {
 	truncateBgTables(t)
 	basegate.ClearRegistry()
+	cacheInitialized.Store(true)
 
 	req := &relaycommon.CanonicalRequest{
 		RequestID:  "req_test_404",
@@ -118,6 +120,7 @@ func TestDispatchSync_AdapterNotFound(t *testing.T) {
 func TestDispatchSync_AdapterFails(t *testing.T) {
 	truncateBgTables(t)
 	basegate.ClearRegistry()
+	cacheInitialized.Store(true)
 
 	adapter := &mockProviderAdapter{
 		name: "mock_fail",
@@ -160,6 +163,7 @@ func TestDispatchSync_AdapterFails(t *testing.T) {
 func TestDispatchAsync_Queued(t *testing.T) {
 	truncateBgTables(t)
 	basegate.ClearRegistry()
+	cacheInitialized.Store(true)
 
 	adapter := &mockProviderAdapter{
 		name: "mock_video",
@@ -210,6 +214,7 @@ func TestDispatchAsync_Queued(t *testing.T) {
 func TestDispatch_Idempotency(t *testing.T) {
 	truncateBgTables(t)
 	basegate.ClearRegistry()
+	cacheInitialized.Store(true)
 
 	adapter := &mockProviderAdapter{
 		name: "mock_idem",

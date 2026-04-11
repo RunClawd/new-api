@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -67,6 +68,19 @@ func PostResponses(c *gin.Context) {
 	// Default billing context
 	canonicalReq.BillingContext = relaycommon.BillingContext{
 		BillingMode: "hosted",
+	}
+
+	// Capability policy check — before mode dispatch, covers sync/async/stream
+	allowed, reason, policyErr := service.EvaluateCapabilityAccess(
+		canonicalReq.OrgID, canonicalReq.ProjectID, canonicalReq.ApiKeyID, canonicalReq.Model)
+	if policyErr != nil {
+		common.SysError("PostResponses policy evaluation failed: " + policyErr.Error())
+		writeBGError(c, policyErr) // no sentinel match -> defaults to 500 internal_error
+		return
+	}
+	if !allowed {
+		writeBGError(c, fmt.Errorf("%w: %s", service.ErrCapabilityDenied, reason))
+		return
 	}
 
 	// Dispatch based on mode

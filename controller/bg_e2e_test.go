@@ -55,6 +55,7 @@ func setupE2ETestEnv(t *testing.T) func() {
 	), "auto migrate")
 
 	basegate.ClearRegistry()
+	service.InitPolicyCacheForTest()
 
 	return func() {
 		basegate.ClearRegistry()

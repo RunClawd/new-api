@@ -125,6 +125,9 @@ func main() {
 	relay.RegisterAllLegacyTaskAdaptors()
 	relay.RegisterNativeAdapters()
 
+	// BaseGate: start policy cache refresher (per-process, all nodes)
+	service.StartPolicyCacheRefresher(60 * time.Second)
+
 	// BaseGate: start background workers on master node
 	if common.IsMasterNode {
 		bgPollWorker := service.NewBgPollWorker(service.DefaultPollConfig)

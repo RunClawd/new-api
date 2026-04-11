@@ -15,8 +15,11 @@ import (
 // DispatchStream handles streaming requests.
 // Flow: create response -> create attempt -> adapter.Stream -> SSE loop -> ApplyProviderEvent (terminal).
 func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
-	// 1. Adapter Lookup
-	adapters := basegate.LookupAdapters(req.Model)
+	// 1. Adapter Lookup via routing policy engine
+	adapters, routeErr := ResolveRoute(req.OrgID, req.ProjectID, req.ApiKeyID, req.Model)
+	if routeErr != nil {
+		return fmt.Errorf("route resolution failed for %s: %w", req.Model, routeErr)
+	}
 	if len(adapters) == 0 {
 		return fmt.Errorf("no adapter found for model: %s", req.Model)
 	}
