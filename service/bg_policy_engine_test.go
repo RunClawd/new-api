@@ -222,6 +222,34 @@ func TestCacheRetainsOldOnRefreshFailure(t *testing.T) {
 	assert.False(t, allow2)
 }
 
-// TestDeleteThenInvalidateCache requires a live DB to verify the full
-// delete -> InvalidatePolicyCache -> re-query chain. Deferred to Day 5
-// integration tests (see PHASE12_PLAN.md acceptance criteria #14).
+// TestDeleteThenInvalidateCache verifies that removing a policy from the cache
+// causes EvaluateCapabilityAccess to immediately reflect the change.
+// This simulates the delete→InvalidatePolicyCache flow using in-memory cache
+// manipulation (the DB round-trip is already tested at the model layer).
+func TestDeleteThenInvalidateCache(t *testing.T) {
+	resetPolicyEngineState()
+	cacheInitialized.Store(true)
+
+	// 1. Seed cache with a deny policy
+	policyMu.Lock()
+	capabilityPolicies = []model.BgCapabilityPolicy{
+		{Scope: "platform", ScopeID: 0, CapabilityPattern: "bg.sandbox.*", Action: "deny", Priority: 10, Status: "active"},
+	}
+	policyMu.Unlock()
+
+	// 2. Verify deny is active
+	allowed, reason, err := EvaluateCapabilityAccess(0, 0, 0, "bg.sandbox.python")
+	require.NoError(t, err)
+	assert.False(t, allowed, "should be denied before cache clear")
+	assert.Contains(t, reason, "deny")
+
+	// 3. Simulate delete→InvalidatePolicyCache: clear policies (as if DB returned empty)
+	policyMu.Lock()
+	capabilityPolicies = nil
+	policyMu.Unlock()
+
+	// 4. Immediately verify: default allow kicks in
+	allowed2, _, err2 := EvaluateCapabilityAccess(0, 0, 0, "bg.sandbox.python")
+	require.NoError(t, err2)
+	assert.True(t, allowed2, "should be allowed after policy removed from cache")
+}

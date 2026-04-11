@@ -258,12 +258,20 @@ type BgRoutingPolicy struct {
 
 ### 12.3 验收标准
 
-- [ ] Capability Policy: org 级 deny `bg.sandbox.*` → 请求返回 403
-- [ ] Capability Policy: project 级 allow 覆盖 org 级 deny
-- [ ] Routing Policy: `fixed` 策略锁定到指定 adapter
-- [ ] Routing Policy: `weighted` 策略在多次调用中体现权重分布
-- [ ] Admin API: CRUD policy 全部可用
-- [ ] 无 policy 配置时行为不变（向后兼容）
+- [x] Capability Policy: org 级 deny `bg.sandbox.*` → 请求返回 403
+- [x] Capability Policy: project 级 allow 覆盖 org 级 deny
+- [x] Capability Policy: enforced platform deny 不可被下级 scope 覆盖
+- [x] Capability Policy: `cacheInitialized=false` 时返回 500（防止 fail-open）
+- [x] Routing Policy: `fixed` 策略锁定到指定 adapter
+- [x] Routing Policy: `weighted` 策略确定性排序正确（固定 seed 测试）
+- [x] Routing Policy: `primary_backup` 返回 [primary, fallback...] 顺序
+- [x] Routing Policy: legacy wrapper (`legacy_task_suno`) 名称匹配
+- [x] Admin API: CRUD policy 全部可用，`Validate()` 在 model 层执行
+- [x] Admin API: `InvalidatePolicyCache` 失败时返回 500 `cache_sync_failed`
+- [x] 审计: CRUD（先于 cache reload）和 deny 事件均有审计记录
+- [x] 统一错误映射: `writeBGError` 覆盖所有 BaseGate sentinel error
+- [x] 无 policy 配置时行为不变（向后兼容）
+- [x] `go test ./... -race` Phase 12 相关包全部 PASS
 
 ---
 

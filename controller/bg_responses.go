@@ -79,6 +79,10 @@ func PostResponses(c *gin.Context) {
 		return
 	}
 	if !allowed {
+		_ = model.RecordBgAuditLog(canonicalReq.OrgID, canonicalReq.RequestID, "", "capability_denied", map[string]interface{}{
+			"model":  req.Model,
+			"reason": reason,
+		})
 		writeBGError(c, fmt.Errorf("%w: %s", service.ErrCapabilityDenied, reason))
 		return
 	}

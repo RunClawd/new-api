@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common" // Contains CanonicalRequest
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -52,6 +53,10 @@ func PostSessions(c *gin.Context) {
 		return
 	}
 	if !allowed {
+		_ = model.RecordBgAuditLog(orgID, canonicalReq.RequestID, "", "capability_denied", map[string]interface{}{
+			"model":  basegateReq.Model,
+			"reason": reason,
+		})
 		writeBGError(c, fmt.Errorf("%w: %s", service.ErrCapabilityDenied, reason))
 		return
 	}

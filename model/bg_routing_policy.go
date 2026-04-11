@@ -136,10 +136,17 @@ func UpdateBgRoutingPolicy(policy *BgRoutingPolicy) error {
 	if err := policy.Validate(); err != nil {
 		return err
 	}
-	return DB.Model(policy).Select(
+	result := DB.Model(policy).Select(
 		"scope", "scope_id", "capability_pattern", "strategy",
 		"rules_json", "priority", "description", "status",
-	).Updates(policy).Error
+	).Updates(policy)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("not found")
+	}
+	return nil
 }
 
 // DeleteBgRoutingPolicy removes a policy by ID.

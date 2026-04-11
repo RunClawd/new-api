@@ -271,6 +271,16 @@ func SetApiRouter(router *gin.Engine) {
 			bgAdminRoute.GET("/webhooks", controller.AdminListBgWebhookEvents)
 			bgAdminRoute.GET("/webhooks/stats", controller.AdminGetBgWebhookStats)
 			bgAdminRoute.POST("/webhooks/:id/retry", controller.AdminRetryBgWebhookEvent)
+
+			// Policy management
+			bgAdminRoute.GET("/policies/capabilities", controller.AdminListBgCapabilityPolicies)
+			bgAdminRoute.POST("/policies/capabilities", controller.AdminCreateBgCapabilityPolicy)
+			bgAdminRoute.PUT("/policies/capabilities/:id", controller.AdminUpdateBgCapabilityPolicy)
+			bgAdminRoute.DELETE("/policies/capabilities/:id", controller.AdminDeleteBgCapabilityPolicy)
+			bgAdminRoute.GET("/policies/routing", controller.AdminListBgRoutingPolicies)
+			bgAdminRoute.POST("/policies/routing", controller.AdminCreateBgRoutingPolicy)
+			bgAdminRoute.PUT("/policies/routing/:id", controller.AdminUpdateBgRoutingPolicy)
+			bgAdminRoute.DELETE("/policies/routing/:id", controller.AdminDeleteBgRoutingPolicy)
 		}
 
 		tokenRoute := apiRouter.Group("/token")

@@ -84,11 +84,18 @@ func UpdateBgCapabilityPolicy(policy *BgCapabilityPolicy) error {
 	if err := policy.Validate(); err != nil {
 		return err
 	}
-	return DB.Model(policy).Select(
+	result := DB.Model(policy).Select(
 		"scope", "scope_id", "capability_pattern", "action",
 		"enforced", "max_concurrency", "priority",
 		"description", "status",
-	).Updates(policy).Error
+	).Updates(policy)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("not found")
+	}
+	return nil
 }
 
 // DeleteBgCapabilityPolicy removes a policy by ID.
