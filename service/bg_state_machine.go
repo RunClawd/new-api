@@ -245,6 +245,7 @@ func ApplyProviderEvent(responseID, attemptID string, event ProviderEvent) error
 		// 7a. Billing pipeline (transactional: usage + billing + ledger)
 		// Only bill for succeeded responses (failed/canceled/expired = no charge)
 		billingStatus := "none"
+		actualQuota := 0
 		if resp.Status == model.BgResponseStatusSucceeded && event.RawUsage != nil {
 			rawUsage := eventRawUsageToProviderUsage(event.RawUsage)
 
@@ -259,17 +260,19 @@ func ApplyProviderEvent(responseID, attemptID string, event ProviderEvent) error
 				}
 			}
 			if pricing == nil {
-				pricing = LookupPricing(resp.Model, resp.BillingMode)
+				pricing = LookupPricing(resp.Model, resp.GetBillingSource())
 			}
 
 			// Resolve provider name from the active attempt's adapter
 			provider := attempt.AdapterName
 
-			if err := FinalizeBilling(responseID, resp.OrgID, resp.ProjectID, resp.Model, provider, rawUsage, pricing); err != nil {
-				common.SysError(fmt.Sprintf("billing failed for %s: %v", responseID, err))
+			quotaUsed, billErr := FinalizeBilling(responseID, resp.OrgID, resp.ProjectID, resp.Model, provider, rawUsage, pricing, resp.GetBillingSource(), nil)
+			if billErr != nil {
+				common.SysError(fmt.Sprintf("billing failed for %s: %v", responseID, billErr))
 				billingStatus = "failed"
 			} else {
 				billingStatus = "completed"
+				actualQuota = quotaUsed
 			}
 		}
 		// Update billing_status (best-effort, does not affect response state)
@@ -283,18 +286,9 @@ func ApplyProviderEvent(responseID, attemptID string, event ProviderEvent) error
 			if err := VoidEstimatedBilling(resp.ReservationBillingID, resp.ReservationLedgerEntryID); err != nil {
 				common.SysError(fmt.Sprintf("void estimated billing failed for %s: %v", responseID, err))
 			}
-			// Quota reconciliation
-			actualQuota := 0
-			if resp.Status == model.BgResponseStatusSucceeded && billingStatus == "completed" {
-				actualQuota = resp.EstimatedQuota // approximate (see follow-up: reverse from actual billing)
-			}
 			SettleReservation(resp.OrgID, resp.EstimatedQuota, actualQuota)
-		} else if resp.EstimatedQuota > 0 {
+		} else if resp.EstimatedQuota > 0 || actualQuota > 0 {
 			// Sync/Stream path: only quota reconciliation (existing logic, unchanged)
-			actualQuota := 0
-			if resp.Status == model.BgResponseStatusSucceeded && billingStatus == "completed" {
-				actualQuota = resp.EstimatedQuota
-			}
 			SettleReservation(resp.OrgID, resp.EstimatedQuota, actualQuota)
 		}
 

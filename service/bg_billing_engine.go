@@ -72,6 +72,7 @@ func CalculateBilling(
 	responseID string,
 	usage *relaycommon.CanonicalUsage,
 	pricing *relaycommon.PricingSnapshot,
+	billingSource string,
 ) (*model.BgBillingRecord, error) {
 	if usage == nil || pricing == nil {
 		return nil, nil
@@ -82,7 +83,9 @@ func CalculateBilling(
 	billingRecord := &model.BgBillingRecord{
 		BillingID:    relaycommon.GenerateBillingID(),
 		ResponseID:   responseID,
-		BillingMode:  pricing.BillingMode,
+		BillingSource: billingSource,
+		PricingMode:  pricing.PricingMode,
+		BillingMode:  billingSource, // legacy
 		BillableUnit: usage.BillableUnit,
 		Quantity:     usage.BillableUnits,
 		UnitPrice:    pricing.UnitPrice,
@@ -140,9 +143,11 @@ func FinalizeBilling(
 	modelName, provider string,
 	rawUsage *relaycommon.ProviderUsage,
 	pricing *relaycommon.PricingSnapshot,
-) error {
+	billingSource string,
+	feeConfig *relaycommon.BYOFeeConfig,
+) (actualQuotaUsed int, err error) {
 	if rawUsage == nil {
-		return nil
+		return 0, nil
 	}
 
 	// 1. Build structs (pure computation, no DB)
@@ -166,7 +171,7 @@ func FinalizeBilling(
 	usageRecord.RawUsageJSON = string(usageJSON)
 
 	// 2. Transactional write: usage + billing + ledger
-	return model.DB.Transaction(func(tx *gorm.DB) error {
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
 		// 2a. Insert usage record
 		if err := tx.Create(usageRecord).Error; err != nil {
 			return fmt.Errorf("usage insert failed: %w", err)
@@ -186,7 +191,9 @@ func FinalizeBilling(
 			ProjectID:    projectID,
 			Model:        modelName,
 			Provider:     provider,
-			BillingMode:  pricing.BillingMode,
+			BillingSource: billingSource,
+			PricingMode:  pricing.PricingMode,
+			BillingMode:  billingSource, // legacy
 			BillableUnit: canonicalUsage.BillableUnit,
 			Quantity:     canonicalUsage.BillableUnits,
 			UnitPrice:    pricing.UnitPrice,
@@ -217,13 +224,15 @@ func FinalizeBilling(
 			responseID, amount, pricing.Currency,
 			canonicalUsage.BillableUnits, pricing.UnitPrice, canonicalUsage.BillableUnit))
 
-		// BYO path (Phase 13): when billing_mode == "byo", use existing Amount field
+		// BYO path (Phase 13): when billing_source == "byo", use existing Amount field
 		// as platform fee, set ProviderCost=0, PlatformMargin=Amount.
 		// No new PlatformFee column needed — reuse existing fields.
-		// if billingMode == "byo" { return finalizeBYOBilling(...) }
+		// if billingSource == "byo" { return finalizeBYOBilling(...) }
 
+		actualQuotaUsed = int(amount * 500000.0)
 		return nil
 	})
+	return actualQuotaUsed, err
 }
 
 // RefundBilling creates a refund for a posted/settled billing record.
@@ -323,11 +332,11 @@ func buildCanonicalUsage(rawUsage *relaycommon.ProviderUsage) *relaycommon.Canon
 
 // LookupPricing bridges BaseGate pricing to the existing ratio_setting system.
 // Phase 5: reads model ratio from the system-wide configuration.
-func LookupPricing(modelName string, billingMode string) *relaycommon.PricingSnapshot {
+func LookupPricing(modelName string, billingSource string) *relaycommon.PricingSnapshot {
 	value, usePrice, exists := ratio_setting.GetModelRatioOrPrice(modelName)
 	if !exists {
 		return &relaycommon.PricingSnapshot{
-			BillingMode:  "metered",
+			PricingMode:  "metered",
 			BillableUnit: "token",
 			UnitPrice:    0,
 			Currency:     "usd",
@@ -337,7 +346,7 @@ func LookupPricing(modelName string, billingMode string) *relaycommon.PricingSna
 	if usePrice {
 		// Price-based model (e.g. dall-e, suno): value is direct $ per request/image
 		return &relaycommon.PricingSnapshot{
-			BillingMode:  "per_call",
+			PricingMode:  "per_call",
 			BillableUnit: "request",
 			UnitPrice:    value,
 			Currency:     "usd",
@@ -348,7 +357,7 @@ func LookupPricing(modelName string, billingMode string) *relaycommon.PricingSna
 	// Convert ratio to per-token price: ratio * $0.002 / 1000 = ratio * 0.000002
 	perTokenPrice := value * 0.002 / 1000.0
 	return &relaycommon.PricingSnapshot{
-		BillingMode:  "metered",
+		PricingMode:  "metered",
 		BillableUnit: "token",
 		UnitPrice:    perTokenPrice,
 		Currency:     "usd",
@@ -412,7 +421,9 @@ func FinalizeSessionBilling(session *model.BgSession) error {
 		billingRecord := &model.BgBillingRecord{
 			BillingID:    relaycommon.GenerateBillingID(),
 			ResponseID:   session.SessionID,
-			BillingMode:  pricing.BillingMode,
+			BillingSource: "hosted", // sessions currently only hosted
+			PricingMode:  pricing.PricingMode,
+			BillingMode:  "hosted", // legacy
 			BillableUnit: "minute",
 			Quantity:     totalMinutes,
 			UnitPrice:    pricing.UnitPrice,

@@ -68,12 +68,16 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 		return nil, fmt.Errorf("no adapters found for model: %s", req.Model)
 	}
 
+	billingSource := req.BillingContext.BillingSource
+	if billingSource == "" {
+		billingSource = "hosted"
+	}
 	// 3. Freeze pricing snapshot at invocation time
-	pricingSnapshot := LookupPricing(req.Model, req.BillingContext.BillingMode)
+	pricingSnapshot := LookupPricing(req.Model, billingSource)
 	snapshotJSON, _ := common.Marshal(pricingSnapshot)
 
 	// 3a. Pre-authorization: estimate cost and reserve quota (Sync = quota-only, no estimated billing record)
-	estimatedQuota := EstimateCost(pricingSnapshot, req.Input)
+	estimatedQuota := EstimateCost(pricingSnapshot, req.Input, nil)
 	if err := ReserveQuota(req.OrgID, estimatedQuota); err != nil {
 		return nil, err // ErrInsufficientQuota
 	}
@@ -91,13 +95,11 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 		Status:              model.BgResponseStatusQueued,
 		StatusVersion:       1,
 		IdempotencyKey:      req.IdempotencyKey,
-		BillingMode:         req.BillingContext.BillingMode,
+		BillingSource:       billingSource,
+		BillingMode:         billingSource, // legacy
 		PricingSnapshotJSON: string(snapshotJSON),
 		CreatedAt:           now,
 		UpdatedAt:           now,
-	}
-	if bgResp.BillingMode == "" {
-		bgResp.BillingMode = "hosted"
 	}
 	inputJSON, _ := common.Marshal(req.Input)
 	bgResp.InputJSON = string(inputJSON)
@@ -212,16 +214,22 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 		return nil, fmt.Errorf("no adapters found for model: %s", req.Model)
 	}
 
+	billingSource := req.BillingContext.BillingSource
+	if billingSource == "" {
+		billingSource = "hosted"
+	}
+
 	// 3. Freeze pricing snapshot at invocation time
-	pricingSnapshot := LookupPricing(req.Model, req.BillingContext.BillingMode)
+	pricingSnapshot := LookupPricing(req.Model, billingSource)
 	snapshotJSON, _ := common.Marshal(pricingSnapshot)
 
 	// 3a. Pre-authorization: estimate cost and reserve quota (Async = quota + estimated billing record)
-	estimatedQuota := EstimateCost(pricingSnapshot, req.Input)
+	estimatedQuota := EstimateCost(pricingSnapshot, req.Input, nil)
 	reservation, err := ReserveQuotaWithBillingHold(
 		req.OrgID, req.ProjectID,
 		req.ResponseID, req.Model,
 		pricingSnapshot, estimatedQuota,
+		billingSource,
 	)
 	if err != nil {
 		return nil, err // ErrInsufficientQuota or billing record failure
@@ -240,16 +248,14 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 		Status:              model.BgResponseStatusAccepted,
 		StatusVersion:       1,
 		IdempotencyKey:      req.IdempotencyKey,
-		BillingMode:         req.BillingContext.BillingMode,
+		BillingSource:       billingSource,
+		BillingMode:         billingSource, // legacy
 		PricingSnapshotJSON:      string(snapshotJSON),
 		EstimatedQuota:           estimatedQuota,
 		ReservationBillingID:     reservation.BillingID,
 		ReservationLedgerEntryID: reservation.LedgerEntryID,
 		CreatedAt:                now,
 		UpdatedAt:                now,
-	}
-	if bgResp.BillingMode == "" {
-		bgResp.BillingMode = "hosted"
 	}
 	inputJSON, _ := common.Marshal(req.Input)
 	bgResp.InputJSON = string(inputJSON)

@@ -24,6 +24,11 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 		return fmt.Errorf("no adapter found for model: %s", req.Model)
 	}
 
+	billingSource := req.BillingContext.BillingSource
+	if billingSource == "" {
+		billingSource = "hosted"
+	}
+
 	// 2. Create response record
 	now := time.Now().Unix()
 	bgResp := &model.BgResponse{
@@ -37,25 +42,22 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 		Status:         model.BgResponseStatusStreaming, // Starts off actively streaming
 		StatusVersion:  1,
 		IdempotencyKey: req.IdempotencyKey,
-		BillingMode:    req.BillingContext.BillingMode,
+		BillingSource:  billingSource,
+		BillingMode:    billingSource, // legacy
 		WebhookURL:     req.ExecutionOptions.WebhookURL,
 		CreatedAt:      now,
 		UpdatedAt:      now,
-	}
-
-	if bgResp.BillingMode == "" {
-		bgResp.BillingMode = "hosted"
 	}
 	inputJSON, _ := common.Marshal(req.Input)
 	bgResp.InputJSON = string(inputJSON)
 
 	// Freeze pricing snapshot at invocation time (same as Sync/Async dispatch paths)
-	pricingSnapshot := LookupPricing(req.Model, req.BillingContext.BillingMode)
+	pricingSnapshot := LookupPricing(req.Model, billingSource)
 	snapshotJSON, _ := common.Marshal(pricingSnapshot)
 	bgResp.PricingSnapshotJSON = string(snapshotJSON)
 
 	// Pre-auth: Sync-equivalent quota reservation (Stream = Sync lifecycle)
-	estimatedQuota := EstimateCost(pricingSnapshot, req.Input)
+	estimatedQuota := EstimateCost(pricingSnapshot, req.Input, nil)
 	if err := ReserveQuota(req.OrgID, estimatedQuota); err != nil {
 		return err // 402 insufficient quota
 	}

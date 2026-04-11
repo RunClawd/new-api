@@ -241,7 +241,7 @@ func TestCloseSessionByID(t *testing.T) {
 	assert.Equal(t, "closed", resp["status"])
 
 	// Verify billing record was generated (10 mins)
-	records, _ := service.CalculateBilling("", nil, nil) // just triggers mock cache load
+	records, _ := service.CalculateBilling("", nil, nil, "hosted") // just triggers mock cache load
 	_ = records
 	
 	// We check the raw usage record table instead (since calculating billing inserts it)

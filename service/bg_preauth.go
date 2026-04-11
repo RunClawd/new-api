@@ -24,7 +24,7 @@ type ReservationResult struct {
 
 // EstimateCost produces a rough cost estimate in quota units (1 quota unit = $0.002 / 500 tokens).
 // This is intentionally conservative (overestimates) to avoid post-hoc billing surprises.
-func EstimateCost(pricing *relaycommon.PricingSnapshot, input interface{}) int {
+func EstimateCost(pricing *relaycommon.PricingSnapshot, input interface{}, feeConfig *relaycommon.BYOFeeConfig) int {
 	if pricing == nil || pricing.UnitPrice == 0 {
 		return 0 // free model or no pricing configured — no pre-auth needed
 	}
@@ -114,6 +114,7 @@ func ReserveQuotaWithBillingHold(
 	responseID, modelName string,
 	pricing *relaycommon.PricingSnapshot,
 	estimatedQuota int,
+	billingSource string,
 ) (*ReservationResult, error) {
 	// 1. Quota check + deduct (identical to ReserveQuota)
 	if err := ReserveQuota(orgID, estimatedQuota); err != nil {
@@ -131,7 +132,9 @@ func ReserveQuotaWithBillingHold(
 		OrgID:       orgID,
 		ProjectID:   projectID,
 		Model:       modelName,
-		BillingMode: "hosted",
+		BillingSource: billingSource,
+		PricingMode: pricing.PricingMode,
+		BillingMode: billingSource, // legacy
 		Amount:      estimatedAmount,
 		Currency:    pricing.Currency,
 		Status:      model.BgBillingStatusEstimated,

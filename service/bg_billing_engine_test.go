@@ -78,19 +78,19 @@ func TestCalculateBilling_TokenPricing(t *testing.T) {
 		OutputUnits:   600,
 	}
 	pricing := &relaycommon.PricingSnapshot{
-		BillingMode:  "metered",
+		PricingMode:  "metered",
 		BillableUnit: "token",
 		UnitPrice:    0.00003, // $0.03/1K tokens
 		Currency:     "usd",
 	}
 
-	bill, err := CalculateBilling("resp_bill_1", usage, pricing)
+	bill, err := CalculateBilling("resp_bill_1", usage, pricing, "hosted")
 	require.NoError(t, err)
 	require.NotNil(t, bill)
 
 	assert.InDelta(t, 0.03, bill.Amount, 0.0001) // 1000 * 0.00003 = 0.03
 	assert.Equal(t, "usd", bill.Currency)
-	assert.Equal(t, "metered", bill.BillingMode)
+	assert.Equal(t, "metered", bill.PricingMode)
 
 	// Verify persisted
 	var records []model.BgBillingRecord
@@ -107,19 +107,19 @@ func TestCalculateBilling_PerCallFixed(t *testing.T) {
 		BillableUnit:  "request",
 	}
 	pricing := &relaycommon.PricingSnapshot{
-		BillingMode:  "per_call",
+		PricingMode:  "per_call",
 		BillableUnit: "request",
 		UnitPrice:    0.05,
 		Currency:     "usd",
 	}
 
-	bill, err := CalculateBilling("resp_bill_2", usage, pricing)
+	bill, err := CalculateBilling("resp_bill_2", usage, pricing, "hosted")
 	require.NoError(t, err)
 	assert.InDelta(t, 0.05, bill.Amount, 0.0001)
 }
 
 func TestCalculateBilling_NilInputs(t *testing.T) {
-	bill, err := CalculateBilling("resp_nil", nil, nil)
+	bill, err := CalculateBilling("resp_nil", nil, nil, "hosted")
 	assert.NoError(t, err)
 	assert.Nil(t, bill)
 }
@@ -167,13 +167,13 @@ func TestFinalizeBilling_FullPipeline(t *testing.T) {
 		TotalTokens:      2000,
 	}
 	pricing := &relaycommon.PricingSnapshot{
-		BillingMode:  "metered",
+		PricingMode:  "metered",
 		BillableUnit: "token",
 		UnitPrice:    0.00003,
 		Currency:     "usd",
 	}
 
-	err := FinalizeBilling("resp_full_pipe", 42, 0, "bg.llm.chat.standard", "test-adapter", rawUsage, pricing)
+	_, err := FinalizeBilling("resp_full_pipe", 42, 0, "bg.llm.chat.standard", "test-adapter", rawUsage, pricing, "hosted", nil)
 	require.NoError(t, err)
 
 	// Verify all 3 tables have records
@@ -188,6 +188,6 @@ func TestFinalizeBilling_FullPipeline(t *testing.T) {
 }
 
 func TestFinalizeBilling_NilUsage(t *testing.T) {
-	err := FinalizeBilling("resp_no_usage", 1, 0, "", "", nil, nil)
+	_, err := FinalizeBilling("resp_no_usage", 1, 0, "", "", nil, nil, "hosted", nil)
 	assert.NoError(t, err) // no-op
 }

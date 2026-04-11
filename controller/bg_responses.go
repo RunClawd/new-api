@@ -67,7 +67,7 @@ func PostResponses(c *gin.Context) {
 
 	// Default billing context
 	canonicalReq.BillingContext = relaycommon.BillingContext{
-		BillingMode: "hosted",
+		BillingSource: "hosted",
 	}
 
 	// Capability policy check — before mode dispatch, covers sync/async/stream

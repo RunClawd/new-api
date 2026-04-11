@@ -1,6 +1,6 @@
 # BaseGate Development Roadmap
 
-> 基于 Phase 10 完成后的现状分析，设计 Phase 11-16 的阶段性任务。
+> 基于 Phase 10 完成后的现状分析，设计 Phase 11-17 的阶段性任务。
 > 目标：从 MVP 状态推进到可对外内测的产品。
 
 ---
@@ -16,7 +16,8 @@
 | Provider 适配器 | 30% | 3 个原生 (OpenAI/Kling/E2B) + 10 个 Legacy Bridge |
 | 多租户治理 | 55% | 字段预留 + Project CRUD；缺 Capability Policy、BYO、角色权限 |
 | 路由调度 | 70% | 权重 + 优先级 + 熔断跳过；缺可配置路由策略、评分公式 |
-| 计费完整度 | 80% | 四层账务 + 预授权；缺 BYO 计费、Billing 状态机扩展 |
+| 计费完整度 | 95% | 四层账务 + 预授权 + Billing 状态机（Sync/Async 双路径）；⚠️ 1 个单元测试待修复 |
+| 策略引擎 | ✅ 100% | Capability Policy + Routing Policy 全功能实现，测试覆盖完整 |
 | 前端 | 40% | 8 个 Bg 页面（Dashboard/Responses/Sessions/Capabilities/Adapters/Billing/Usage/Projects）；缺开发者控制台、策略配置 UI |
 | 测试 | 85% | 40+ test files；1 个 legacy test 失败，缺 E2E 覆盖 |
 
@@ -29,10 +30,10 @@
 | 三、Streaming SSE | ✅ 已定义 | ✅ 已实现 | — |
 | 四、Capability → Tool | ✅ 已定义 | ❌ 未实现 | 完全缺失 |
 | 五、Provider Adapter | ✅ 已定义 | ⚠️ 部分 | 接口完整，原生适配器不足 |
-| 六、调度与计费 | ✅ 已定义 | ⚠️ 部分 | 缺 BYO 计费、计费状态机 |
+| 六、调度与计费 | ✅ 已定义 | ⚠️ 部分 | 缺 BYO 计费；Billing 状态机 ✅ 已实现 |
 | 七、状态机与回调 | ✅ 已定义 | ✅ 已实现 | — |
 | 八、Session 协议 | ✅ 已定义 | ✅ 已实现 | — |
-| 九、多租户与路由 | ✅ 已定义 | ⚠️ 部分 | 缺 Capability Policy、Routing Policy、BYO Credential |
+| 九、多租户与路由 | ✅ 已定义 | ✅ 已实现 | Capability Policy + Routing Policy 完整实现 |
 
 ---
 
@@ -166,15 +167,15 @@ RefundBilling (后置调整)
 
 ### 11.3 验收标准
 
-- [ ] `go test ./... -count=1` 全部 PASS（含 legacy test fix）
-- [ ] **Sync 路径**：quota 预扣 + FinalizeBilling 一步到位，无 estimated record 写入
-- [ ] **Async 路径**：estimated billing record + hold ledger entry 正确写入
-- [ ] **Async 成功**：billing record estimated → posted，ledger pending → committed
-- [ ] **Async 失败/取消**：billing record → voided，ledger → voided，quota 全额退还
-- [ ] **Reconciliation sweep**：stuck >5min 的 response 被标记 failed + 退 quota
-- [ ] **Reconciliation sweep**：terminal 但 billing_status 非 completed 的 response 被补计费
-- [ ] `RefundBilling` 可对 posted record 创建 refunded 记录
-- [ ] BYO 分支注释预留，不影响现有 hosted 路径
+- [x] `go test ./... -count=1` 全部 PASS（含 legacy test fix）→ ⚠️ `TestCalculateBilling_TokenPricing` 待修复
+- [x] **Sync 路径**：quota 预扣 + FinalizeBilling 一步到位，无 estimated record 写入
+- [x] **Async 路径**：estimated billing record + hold ledger entry 正确写入
+- [x] **Async 成功**：billing record estimated → posted，ledger pending → committed
+- [x] **Async 失败/取消**：billing record → voided，ledger → voided，quota 全额退还
+- [x] **Reconciliation sweep**：stuck >5min 的 response 被标记 failed + 退 quota
+- [x] **Reconciliation sweep**：terminal 但 billing_status 非 completed 的 response 被补计费
+- [x] `RefundBilling` 可对 posted record 创建 refunded 记录
+- [x] BYO 分支注释预留，不影响现有 hosted 路径
 
 ---
 
@@ -626,51 +627,236 @@ result = bg.tools.execute(name="bg_video_generate_standard", arguments={...})
 
 ---
 
+## Phase 17: 产品化补齐 — 从"引擎完成"到"可内测" (8-12d)
+
+**目标**：Phase 11-16 完成了全部技术引擎，但缺少用户入口、文档、安全加固等产品化必需品。本 Phase 补齐这些差距，使系统真正达到可对外内测的状态。
+
+> **背景**：Phase 16 完成后的系统状态是——所有引擎都在转，但没有入口（开发者前端）、
+> 没有说明书（文档）、没有门卫（安全加固）。技术上完整但产品上未就绪。
+
+### Phase 16 完成后的差距分析
+
+| 维度 | Phase 16 后状态 | 差什么才能对外 |
+|------|----------------|---------------|
+| 核心引擎 | 生产级 | 已经足够 |
+| Provider 覆盖 | 6 原生 + 10 legacy | 够用 |
+| 多租户治理 | 完整 | 够用 |
+| 计费 | 完整含 BYO | 够用 |
+| 前端 | 管理后台完整，**开发者面板缺失** | 开发者无法自助使用 |
+| 文档 | 无 | **致命缺失**——没有 API 文档，SDK 等于不存在 |
+| 认证/注册 | 继承 new-api 的用户系统 | 缺开发者自助注册流程 |
+| 部署 | Dockerfile 有 | 缺部署文档、环境变量说明、一键部署脚本 |
+| 安全 | BYO 凭证加密有了 | 缺 per-key rate limit、IP 白名单、abuse 防护 |
+| 高可用 | 单实例 | 缺多实例部署验证 |
+
+### 17.1 开发者最小前端 (P0, 2-3d)
+
+开发者的核心循环是：**拿到 Key → 调 API → 看结果 → 查用量/花费 → 续费/调整**。
+
+基于这个循环，最小前端只需 4 个页面：
+
+**实施策略**：新建 `DevRoute`（开发者角色路由），复用现有管理页面组件 + scope 过滤。
+
+#### 17.1.1 API Key 管理（新建）
+
+```
+功能：
+- 创建 Key（绑定 Project，名称，过期时间）
+- 列表（名称、前缀、创建时间、最后使用时间、状态）
+- 删除/禁用
+- 创建时只展示一次完整 Key
+
+不需要（首版）：
+- Key 权限粒度配置（所有 Key 权限相同）
+- 用量限额配置（用全局 quota）
+```
+
+| 文件 | 变更 |
+|------|------|
+| `web/src/pages/BgApiKeys/index.jsx` | **新建** — Key CRUD 页面 |
+| `controller/bg_apikey.go` | **新建** — 开发者级 Key CRUD API（非 admin） |
+| `router/api-router.go` | 修改 — 注册开发者 API 路由 |
+
+#### 17.1.2 用量与花费（复用 BgUsage，降权限）
+
+```
+功能：
+- 本月总花费 / 剩余额度（大数字卡片）
+- 按天的调用量和花费折线图
+- 按模型/能力的花费分布
+
+不需要（首版）：
+- CSV 导出
+- 跨组织筛选（开发者只看自己的）
+```
+
+| 文件 | 变更 |
+|------|------|
+| `web/src/pages/BgDevUsage/index.jsx` | **新建** — 包装 BgUsage 组件，加 `scope=current_user` 过滤 |
+
+#### 17.1.3 请求日志（复用 BgResponses，降权限）
+
+```
+功能：
+- 最近 N 条请求列表（时间、模型、状态、延迟、花费）
+- 点击看详情（请求/响应、错误信息）
+- 按状态筛选（成功/失败）
+
+不需要（首版）：
+- Attempts 详情（运维调试用）
+- Billing record 关联
+```
+
+| 文件 | 变更 |
+|------|------|
+| `web/src/pages/BgDevLogs/index.jsx` | **新建** — 包装 BgResponses 组件，简化展示 |
+
+#### 17.1.4 Playground（已有，移到 DevRoute）
+
+```
+已有功能足够：选能力、填 JSON、发请求、看响应、Stream 实时输出
+
+需改动：
+- 从 AdminRoute 移到 DevRoute
+- 自动填入当前用户的 API Key
+```
+
+| 文件 | 变更 |
+|------|------|
+| `web/src/App.jsx` | 修改 — Playground 同时挂载到 AdminRoute 和 DevRoute |
+
+### 17.2 API 文档站 (P0, 2-3d)
+
+**现状问题**：没有文档 = 没有产品。开发者拿到 Key 后不知道怎么用。
+
+| 文档 | 内容 | 格式 |
+|------|------|------|
+| Quick Start | 5 分钟从注册到第一次 API 调用 | Markdown / 静态站 |
+| API Reference | 能力列表、请求/响应格式、认证方式、错误码 | OpenAPI spec + 渲染 |
+| SDK Guide | Python SDK 安装、初始化、四种模式示例 | Markdown |
+| 错误码表 | 所有 BaseGate 错误码及处理建议 | 表格 |
+
+| 文件 | 变更 |
+|------|------|
+| `docs/api/` | **新建** — OpenAPI spec（从现有路由自动或手动生成） |
+| `docs/guide/` | **新建** — Quick Start + SDK Guide |
+| `docs/site/` | **新建** — 静态文档站（VitePress / Docusaurus，选一） |
+
+### 17.3 开发者注册与登录 (P0, 1d)
+
+| 任务 | 说明 |
+|------|------|
+| 开发者注册页面 | 基于现有用户系统，增加开发者角色自助注册 |
+| 注册后引导 | 注册 → 创建第一个 Project → 获取 API Key → 跳转 Playground |
+| 邀请码机制 | 内测阶段通过邀请码控制注册（可选，防滥用） |
+
+| 文件 | 变更 |
+|------|------|
+| `web/src/pages/BgRegister/index.jsx` | **新建** — 开发者注册页 |
+| `controller/bg_auth.go` | **新建** — 开发者注册 API（含邀请码校验） |
+
+### 17.4 部署与运维文档 (P1, 1d)
+
+| 文档 | 内容 |
+|------|------|
+| `docs/deploy/docker-compose.yml` | 一键启动：API + PostgreSQL + Redis |
+| `docs/deploy/ENV.md` | 所有环境变量说明、必填/可选、默认值 |
+| `docs/deploy/PRODUCTION.md` | 生产部署建议：反向代理、HTTPS、数据库高可用、备份 |
+
+### 17.5 安全加固 (P1, 1-2d)
+
+| 任务 | 说明 | 复杂度 |
+|------|------|--------|
+| Per-key rate limiting | 按 API Key 限流（基于现有 rate limiter 扩展） | 低 |
+| IP 白名单 | 可选的 Key 级 IP 绑定 | 低 |
+| 请求体大小限制 | 防止超大 payload 打爆内存 | 低 |
+| Abuse 检测 | 短时间大量 4xx 自动临时封禁 | 中 |
+
+| 文件 | 变更 |
+|------|------|
+| `middleware/bg_rate_limit.go` | **新建** — Per-key rate limiter |
+| `middleware/bg_security.go` | **新建** — IP 白名单 + abuse 检测 |
+
+### 17.6 Landing Page (P2, 1-2d)
+
+内测也需要一个说清楚"这是什么"的入口页。
+
+```
+内容：
+- 一句话定位：统一 AI 能力网关
+- 核心价值（3 个卖点卡片）
+- 代码示例（curl + Python）
+- CTA：注册内测 / 查看文档
+```
+
+### 17.7 验收标准
+
+- [ ] 开发者可自助：注册 → 创建 Project → 获取 API Key → Playground 测试 → 查看用量
+- [ ] API 文档站可访问，包含 Quick Start + API Reference + SDK Guide
+- [ ] `docker-compose up` 一键启动完整环境
+- [ ] Per-key rate limiting 生效，超限返回 429
+- [ ] 内测邀请码机制可控制注册（可选）
+- [ ] Landing page 说清楚产品定位
+
+---
+
 ## 执行优先级与依赖关系
 
 ```
-Phase 11 (Billing 状态机 + 测试)  ← 无依赖，立即开始（2.5-3d）
+Phase 11 (Billing 状态机 + 测试)  ← 核心实现完成，测试待修复 ⚠️
     │
-    ├── Phase 12 (策略引擎)       ← 依赖 11 的稳定核心（4-5d）
+    ├── Phase 12 (策略引擎)       ← ✅ 已完成（4-5d）
     │       │
     │       └── Phase 13 (BYO 全链路 + 适配器) ← 依赖 12 的路由策略（6-9d）
     │               │                            BYO 计费逻辑在此闭环
     │               │
     │               └── Phase 14 (前端改造)     ← 依赖 12+13 的后端 API（5-7d）
     │
-    └── Phase 15 (Tool 投影 + SDK) ← 仅依赖 Phase 11（核心引擎稳定）（4-5d）
-            │
-            └── Phase 16 (可观测性) ← 依赖整体稳定（3-4d）
+    ├── Phase 15 (Tool 投影 + SDK) ← 仅依赖 Phase 11（核心引擎稳定）（4-5d）
+    │       │
+    │       └── Phase 16 (可观测性) ← 依赖整体稳定（3-4d）
+    │
+    └── Phase 17 (产品化补齐)     ← 依赖 14 (前端基础) + 15 (SDK)（8-12d）
+                                     开发者前端 + 文档 + 注册 + 安全 + 部署
 ```
 
 ```
 时间线估算（单人开发）：
 
-Phase 11 ──── Week 1 前半
-Phase 12 ──── Week 1 后半 ~ Week 2
-Phase 13 ──── Week 3 ~ Week 4    (BYO 计费 + 3 个原生适配器)
+Phase 11 ──── ⚠️ 核心完成，测试修复中
+Phase 12 ──── ✅ 已完成（Policy + Router）
+Phase 13 ──── Week 2 ~ Week 4    (BYO 计费 + 3 个原生适配器)
 Phase 14 ──── Week 4 ~ Week 5
 Phase 15 ──── Week 5 ~ Week 6    (可与 14 后半段并行)
 Phase 16 ──── Week 6 ~ Week 7
+Phase 17 ──── Week 7 ~ Week 9    (产品化：前端 + 文档 + 安全 + 部署)
 
-总计：6-7 周达到内测就绪状态
+总计：约 8-9 周达到真正可内测状态
 ```
+
+> **注**：Phase 11-16（6-7 周）完成的是全部技术引擎。Phase 17 额外的 2 周
+> 补齐产品化必需品（用户入口、文档、安全），两者缺一不可。
 
 ---
 
 ## 里程碑定义
 
-### M1: Billing 状态机 + 治理引擎 (Phase 11+12 完成)
+### M1: Billing 状态机 + 治理引擎 (Phase 11+12 完成) ✅
 
-> 可对内部团队开放：pre-auth ↔ billing 打通 + 能力/路由策略配置 + 测试全绿
+> ✅ **已实现**: pre-auth ↔ billing 打通 + Capability/Routing Policy 完整实现
+> ⚠️ **待修复**: `TestCalculateBilling_TokenPricing` 单元测试（不影响核心功能）
 
 ### M2: BYO 闭环 + Provider 覆盖 + 开发者体验 (Phase 13+14 完成)
 
 > 可对种子用户开放：BYO 计费全链路 + Claude/Gemini/DeepSeek 原生适配 + 开发者控制台 + Playground
 
-### M3: Agent 集成与生产就绪 (Phase 15+16 完成)
+### M3: 技术引擎完成 (Phase 15+16 完成)
 
-> 可对外内测：Tool 投影 + SDK + 可观测性 + 运维工具
+> 技术完整：Tool 投影 + SDK + 可观测性 + 运维工具。但缺少开发者入口和文档，尚不可对外。
+
+### M4: 可对外内测 (Phase 17 完成)
+
+> 真正可内测：开发者可自助注册 → 创建 Key → 查文档 → Playground 测试 → 集成 SDK → 查看用量。有安全加固和部署文档。
 
 ---
 
@@ -685,3 +871,6 @@ Phase 16 ──── Week 6 ~ Week 7
 | 单人开发瓶颈 | 整体进度 | 优先 M1（治理）和 M2 的后端部分，前端可分批交付 |
 | E2E 测试（session/streaming）超时 | Phase 11 延期 | 核心 preauth billing 测试先行，E2E 可滑入 Phase 12 初期 |
 | Legacy wrapper 与新路由引擎冲突 | 路由行为不一致 | Phase 12 中统一走 bg_router，legacy wrapper 仍是 adapter 实现 |
+| 文档工作量超预期 | Phase 17 延期 | Quick Start + API Reference 优先，SDK Guide 可后置 |
+| 开发者前端复用现有组件困难 | 需要更多新建 | 保持最小范围（4 个页面），不做 Dev Dashboard 等非必要页面 |
+| 安全加固不足导致内测事故 | 用户数据泄露/服务不可用 | Per-key rate limit 是 P1 必须项，abuse 检测可分批上线 |

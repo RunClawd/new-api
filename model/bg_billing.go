@@ -60,7 +60,10 @@ type BgBillingRecord struct {
 	ProjectID           int             `json:"project_id" gorm:"not null;default:0"`
 	Model               string          `json:"model" gorm:"type:varchar(191)"`
 	Provider            string          `json:"provider" gorm:"type:varchar(50)"`
-	BillingMode         string          `json:"billing_mode" gorm:"type:varchar(10);default:'hosted'"`
+	BillingSource       string          `json:"billing_source" gorm:"type:varchar(10);default:'hosted'"` // hosted | byo
+	PricingMode         string          `json:"pricing_mode" gorm:"type:varchar(10);default:'metered'"` // metered | per_call
+	FeeType             string          `json:"fee_type" gorm:"type:varchar(20);default:''"` // per_request | percentage | ""
+	BillingMode         string          `json:"billing_mode" gorm:"type:varchar(10);default:'hosted'"` // legacy
 	BillableUnit        string          `json:"billable_unit" gorm:"type:varchar(20)"`
 	Quantity            float64         `json:"quantity" gorm:";default:0"`
 	UnitPrice           float64         `json:"unit_price" gorm:";default:0"`

@@ -73,7 +73,10 @@ type BgResponse struct {
 	StatusVersion   int              `json:"status_version" gorm:"not null;default:1"`
 	IdempotencyKey  string           `json:"idempotency_key" gorm:"type:varchar(191);index"`
 	ActiveAttemptID int64            `json:"active_attempt_id" gorm:"default:0"`
-	BillingMode     string           `json:"billing_mode" gorm:"type:varchar(10);default:'hosted'"`
+	BillingSource   string           `json:"billing_source" gorm:"type:varchar(10);default:'hosted'"`
+	BYOCredentialID int64            `json:"byo_credential_id" gorm:"default:0"`
+	FeeConfigJSON   string           `json:"-" gorm:"type:text"`
+	BillingMode     string           `json:"billing_mode" gorm:"type:varchar(10);default:'hosted'"` // legacy 
 	InputJSON       string           `json:"input_json" gorm:"type:text"`
 	OutputJSON      string           `json:"output_json" gorm:"type:text"`
 	ErrorJSON       string           `json:"error_json" gorm:"type:text"`
@@ -165,4 +168,15 @@ func ListBgResponsesByOrgID(orgID string, offset int, limit int) ([]*BgResponse,
 		Limit(limit).
 		Find(&responses).Error
 	return responses, err
+}
+
+// GetBillingSource returns the effective billing source with fallback to legacy field.
+func (r *BgResponse) GetBillingSource() string {
+	if r.BillingSource != "" {
+		return r.BillingSource
+	}
+	if r.BillingMode != "" {
+		return r.BillingMode
+	}
+	return "hosted"
 }

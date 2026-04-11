@@ -62,7 +62,7 @@ func TestReserveQuotaWithBillingHold_WritesRecords(t *testing.T) {
 	seedUser(t, orgID, quota)
 
 	pricing := &relaycommon.PricingSnapshot{
-		BillingMode:  "metered",
+		PricingMode:  "metered",
 		BillableUnit: "token",
 		UnitPrice:    0.000002,
 		Currency:     "usd",
@@ -72,6 +72,7 @@ func TestReserveQuotaWithBillingHold_WritesRecords(t *testing.T) {
 		orgID, 1,
 		"resp_test_hold_001", "bg.llm.chat.test",
 		pricing, 20000,
+		"hosted",
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -107,7 +108,7 @@ func TestReserveQuotaWithBillingHold_InsufficientQuota(t *testing.T) {
 	seedUser(t, orgID, 100)
 
 	pricing := &relaycommon.PricingSnapshot{
-		BillingMode:  "metered",
+		PricingMode:  "metered",
 		BillableUnit: "token",
 		UnitPrice:    0.000002,
 		Currency:     "usd",
@@ -117,6 +118,7 @@ func TestReserveQuotaWithBillingHold_InsufficientQuota(t *testing.T) {
 		orgID, 1,
 		"resp_test_hold_fail", "bg.llm.chat.test",
 		pricing, 50000,
+		"hosted",
 	)
 	assert.Error(t, err)
 	assert.Nil(t, result)

@@ -209,7 +209,7 @@ func AdminListBgCapabilities(c *gin.Context) {
 		enriched[i].BgCapability = *cap
 		pricing := service.LookupPricing(cap.CapabilityName, "hosted")
 		if pricing != nil && pricing.UnitPrice > 0 {
-			if pricing.BillingMode == "per_call" {
+			if pricing.PricingMode == "per_call" {
 				enriched[i].PricingMode = "price"
 			} else {
 				enriched[i].PricingMode = "ratio"

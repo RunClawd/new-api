@@ -36,6 +36,9 @@ type CanonicalRequest struct {
 
 	// Metadata
 	Metadata map[string]string `json:"metadata,omitempty"`
+
+	// CredentialOverride is set per-attempt by the orchestrator—NOT by ResolveRoute.
+	CredentialOverride *CredentialOverride `json:"-"` // transient, never serialized
 }
 
 // ExecutionOptions controls how the request is executed.
@@ -47,8 +50,21 @@ type ExecutionOptions struct {
 
 // BillingContext provides billing-related information for the request.
 type BillingContext struct {
-	BillingMode     string `json:"billing_mode"`                // hosted | byo
+	BillingSource   string `json:"billing_source"`              // hosted | byo
 	BYOCredentialID string `json:"byo_credential_id,omitempty"`
+}
+
+// CredentialOverride allows BYO credentials to be injected per-adapter.
+type CredentialOverride struct {
+	APIKey         string `json:"api_key,omitempty"`
+	ServiceAccount string `json:"service_account,omitempty"` // future: Vertex AI
+}
+
+// BYOFeeConfig defines the BYO platform fee calculation parameters.
+type BYOFeeConfig struct {
+	FeeType        string  `json:"fee_type"`        // per_request | percentage
+	FixedAmount    float64 `json:"fixed_amount"`    // for per_request: $ per request
+	PercentageRate float64 `json:"percentage_rate"` // for percentage: 0.10 = 10%
 }
 
 // AdapterResult is the standardized response from a ProviderAdapter.
@@ -124,7 +140,7 @@ type CanonicalUsage struct {
 
 // PricingSnapshot captures pricing at invocation time (immutable).
 type PricingSnapshot struct {
-	BillingMode  string  `json:"billing_mode"`  // metered | per_call | subscription
+	PricingMode  string  `json:"pricing_mode"`  // metered | per_call | subscription
 	BillableUnit string  `json:"billable_unit"` // token | second | minute | action | request
 	UnitPrice    float64 `json:"unit_price"`
 	Currency     string  `json:"currency"`
