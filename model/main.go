@@ -301,6 +301,8 @@ func migrateDB() error {
 		{"BgCapability", &BgCapability{}},
 		{"BgAuditLog", &BgAuditLog{}},
 		{"BgProject", &BgProject{}},
+		{"BgCapabilityPolicy", &BgCapabilityPolicy{}},
+		{"BgRoutingPolicy", &BgRoutingPolicy{}},
 	}
 	for _, m := range migrationModels {
 		if err := DB.AutoMigrate(m.model); err != nil {

@@ -118,6 +118,23 @@ func weightedRandomSort(entries []weightedAdapter) []ProviderAdapter {
 	return result
 }
 
+// ListAdaptersUnordered returns all registered adapters for a capability without any sorting.
+// Used by the routing policy engine (bg_router.go) which applies its own ordering strategy.
+// For the original weighted-random behavior, use LookupAdapters().
+//
+// Phase 13: consider returning weight/provider metadata if BYO fallback needs original weights.
+func ListAdaptersUnordered(capabilityName string) []ProviderAdapter {
+	adapterRegistryMu.RLock()
+	weighted := capabilityMap[capabilityName]
+	// Copy under lock — RegisterAdapter may replace the slice via append
+	result := make([]ProviderAdapter, len(weighted))
+	for i, wa := range weighted {
+		result[i] = wa.Adapter
+	}
+	adapterRegistryMu.RUnlock()
+	return result
+}
+
 func LookupAdapterByName(adapterName string) ProviderAdapter {
 	adapterRegistryMu.RLock()
 	defer adapterRegistryMu.RUnlock()
