@@ -82,7 +82,7 @@ func TestStreamScannerHandler_NilInputs(t *testing.T) {
 }
 
 func TestStreamScannerHandler_EmptyBody(t *testing.T) {
-	t.Parallel()
+	// Not parallel: setupStreamTest modifies global constant.StreamingTimeout
 
 	c, resp, info := setupStreamTest(t, strings.NewReader(""))
 
@@ -95,7 +95,6 @@ func TestStreamScannerHandler_EmptyBody(t *testing.T) {
 }
 
 func TestStreamScannerHandler_1000Chunks(t *testing.T) {
-	t.Parallel()
 
 	const numChunks = 1000
 	body := buildSSEBody(numChunks)
@@ -107,11 +106,10 @@ func TestStreamScannerHandler_1000Chunks(t *testing.T) {
 	})
 
 	assert.Equal(t, int64(numChunks), count.Load())
-	assert.Equal(t, numChunks, info.ReceivedResponseCount)
+	assert.Equal(t, int64(numChunks), info.ReceivedResponseCount.Load())
 }
 
 func TestStreamScannerHandler_10000Chunks(t *testing.T) {
-	t.Parallel()
 
 	const numChunks = 10000
 	body := buildSSEBody(numChunks)
@@ -126,12 +124,11 @@ func TestStreamScannerHandler_10000Chunks(t *testing.T) {
 
 	elapsed := time.Since(start)
 	assert.Equal(t, int64(numChunks), count.Load())
-	assert.Equal(t, numChunks, info.ReceivedResponseCount)
+	assert.Equal(t, int64(numChunks), info.ReceivedResponseCount.Load())
 	t.Logf("10000 chunks processed in %v", elapsed)
 }
 
 func TestStreamScannerHandler_OrderPreserved(t *testing.T) {
-	t.Parallel()
 
 	const numChunks = 500
 	body := buildSSEBody(numChunks)
@@ -154,7 +151,6 @@ func TestStreamScannerHandler_OrderPreserved(t *testing.T) {
 }
 
 func TestStreamScannerHandler_DoneStopsScanner(t *testing.T) {
-	t.Parallel()
 
 	body := buildSSEBody(50) + "data: should_not_appear\n"
 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
@@ -168,7 +164,6 @@ func TestStreamScannerHandler_DoneStopsScanner(t *testing.T) {
 }
 
 func TestStreamScannerHandler_StopStopsStream(t *testing.T) {
-	t.Parallel()
 
 	const numChunks = 200
 	body := buildSSEBody(numChunks)
@@ -189,7 +184,6 @@ func TestStreamScannerHandler_StopStopsStream(t *testing.T) {
 }
 
 func TestStreamScannerHandler_SkipsNonDataLines(t *testing.T) {
-	t.Parallel()
 
 	var b strings.Builder
 	b.WriteString(": comment line\n")
@@ -213,7 +207,6 @@ func TestStreamScannerHandler_SkipsNonDataLines(t *testing.T) {
 }
 
 func TestStreamScannerHandler_DataWithExtraSpaces(t *testing.T) {
-	t.Parallel()
 
 	body := "data:   {\"trimmed\":true}  \ndata: [DONE]\n"
 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
@@ -229,7 +222,7 @@ func TestStreamScannerHandler_DataWithExtraSpaces(t *testing.T) {
 // ---------- Decoupling ----------
 
 func TestStreamScannerHandler_ScannerDecoupledFromSlowHandler(t *testing.T) {
-	t.Parallel()
+	// Not parallel: modifies global constant.StreamingTimeout
 
 	const numChunks = 50
 	const upstreamDelay = 10 * time.Millisecond
@@ -284,7 +277,6 @@ func TestStreamScannerHandler_ScannerDecoupledFromSlowHandler(t *testing.T) {
 }
 
 func TestStreamScannerHandler_SlowUpstreamFastHandler(t *testing.T) {
-	t.Parallel()
 
 	const numChunks = 50
 	body := buildSSEBody(numChunks)
@@ -316,7 +308,7 @@ func TestStreamScannerHandler_SlowUpstreamFastHandler(t *testing.T) {
 // ---------- Ping tests ----------
 
 func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
-	t.Parallel()
+	// Not parallel: modifies global PingInterval settings + StreamingTimeout
 
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
@@ -376,7 +368,7 @@ func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
 }
 
 func TestStreamScannerHandler_PingDisabledByRelayInfo(t *testing.T) {
-	t.Parallel()
+	// Not parallel: modifies global PingInterval settings + StreamingTimeout
 
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
@@ -439,7 +431,6 @@ func TestStreamScannerHandler_PingDisabledByRelayInfo(t *testing.T) {
 // ---------- StreamStatus integration ----------
 
 func TestStreamScannerHandler_StreamStatus_DoneReason(t *testing.T) {
-	t.Parallel()
 
 	body := buildSSEBody(10)
 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
@@ -454,7 +445,6 @@ func TestStreamScannerHandler_StreamStatus_DoneReason(t *testing.T) {
 }
 
 func TestStreamScannerHandler_StreamStatus_EOFWithoutDone(t *testing.T) {
-	t.Parallel()
 
 	var b strings.Builder
 	for i := 0; i < 5; i++ {
@@ -470,7 +460,6 @@ func TestStreamScannerHandler_StreamStatus_EOFWithoutDone(t *testing.T) {
 }
 
 func TestStreamScannerHandler_StreamStatus_HandlerStop(t *testing.T) {
-	t.Parallel()
 
 	body := buildSSEBody(100)
 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
@@ -489,7 +478,6 @@ func TestStreamScannerHandler_StreamStatus_HandlerStop(t *testing.T) {
 }
 
 func TestStreamScannerHandler_StreamStatus_HandlerDone(t *testing.T) {
-	t.Parallel()
 
 	body := buildSSEBody(20)
 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
@@ -546,7 +534,6 @@ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
 }
 
 func TestStreamScannerHandler_StreamStatus_SoftErrors(t *testing.T) {
-	t.Parallel()
 
 	body := buildSSEBody(10)
 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
@@ -562,7 +549,6 @@ func TestStreamScannerHandler_StreamStatus_SoftErrors(t *testing.T) {
 }
 
 func TestStreamScannerHandler_StreamStatus_MultipleErrorsPerChunk(t *testing.T) {
-	t.Parallel()
 
 	body := buildSSEBody(5)
 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
@@ -578,7 +564,6 @@ func TestStreamScannerHandler_StreamStatus_MultipleErrorsPerChunk(t *testing.T) 
 }
 
 func TestStreamScannerHandler_StreamStatus_ErrorThenStop(t *testing.T) {
-	t.Parallel()
 
 	// Use a large body without [DONE] to avoid race between scanner's [DONE]
 	// and handler's Stop on the sync.Once EndReason.
@@ -602,7 +587,6 @@ func TestStreamScannerHandler_StreamStatus_ErrorThenStop(t *testing.T) {
 }
 
 func TestStreamScannerHandler_StreamStatus_InitializedIfNil(t *testing.T) {
-	t.Parallel()
 
 	body := buildSSEBody(1)
 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
@@ -615,7 +599,6 @@ func TestStreamScannerHandler_StreamStatus_InitializedIfNil(t *testing.T) {
 }
 
 func TestStreamScannerHandler_StreamStatus_PreInitialized(t *testing.T) {
-	t.Parallel()
 
 	body := buildSSEBody(5)
 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
@@ -630,7 +613,7 @@ func TestStreamScannerHandler_StreamStatus_PreInitialized(t *testing.T) {
 }
 
 func TestStreamScannerHandler_PingInterleavesWithSlowUpstream(t *testing.T) {
-	t.Parallel()
+	// Not parallel: modifies global PingInterval settings + StreamingTimeout
 
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
