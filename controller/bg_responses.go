@@ -87,12 +87,7 @@ func PostResponses(c *gin.Context) {
 			common.SysError("PostResponses stream error: " + err.Error())
 			// DispatchStream already writes header if it started streaming, but if it errored before, we return JSON.
 			if !c.Writer.Written() {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": gin.H{
-						"code":    "internal_error",
-						"message": err.Error(),
-					},
-				})
+				writeBGError(c, err)
 			}
 		}
 		return // Stream handled entirely within DispatchStream
@@ -102,22 +97,7 @@ func PostResponses(c *gin.Context) {
 
 	if err != nil {
 		common.SysError("PostResponses error: " + err.Error())
-		statusCode := http.StatusInternalServerError
-		errCode := "internal_error"
-		if err == service.ErrIdempotencyConflict {
-			statusCode = http.StatusConflict
-			errCode = "idempotency_mismatch"
-		} else if err == service.ErrInsufficientQuota {
-			statusCode = http.StatusPaymentRequired
-			errCode = "insufficient_quota"
-		}
-		c.JSON(statusCode, gin.H{
-			"error": gin.H{
-				"code":    errCode,
-				"type":    "invalid_request_error",
-				"message": err.Error(),
-			},
-		})
+		writeBGError(c, err)
 		return
 	}
 

@@ -124,9 +124,9 @@ func newBgTestContext(t *testing.T, method, target string, body interface{}) (*g
 		ctx.Request.Header.Set("Content-Type", "application/json")
 	}
 	// Set default auth context
-	ctx.Set("org_id", 1)
+	ctx.Set("id", 1)        // matches c.GetInt("id")
 	ctx.Set("project_id", 1)
-	ctx.Set("api_key_id", 10)
+	ctx.Set("token_id", 10) // matches c.GetInt("token_id")
 	ctx.Set("end_user_id", "user_test")
 	return ctx, recorder
 }

@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 
@@ -44,19 +43,7 @@ func PostSessions(c *gin.Context) {
 
 	sessionResp, err := service.CreateSession(canonicalReq)
 	if err != nil {
-		code := "internal_error"
-		status := http.StatusInternalServerError
-		if errors.Is(err, service.ErrSessionValidation) {
-			code = "invalid_request"
-			status = http.StatusBadRequest
-		}
-
-		c.JSON(status, gin.H{
-			"error": gin.H{
-				"code":    code,
-				"message": err.Error(),
-			},
-		})
+		writeBGError(c, err)
 		return
 	}
 
@@ -75,15 +62,7 @@ func GetSessionByID(c *gin.Context) {
 
 	sessionResp, err := service.GetSession(sessionID)
 	if err != nil {
-		status := http.StatusInternalServerError
-		code := "internal_error"
-		if errors.Is(err, service.ErrSessionNotFound) {
-			status = http.StatusNotFound
-			code = "not_found"
-		}
-		c.JSON(status, gin.H{
-			"error": gin.H{"code": code, "message": err.Error()},
-		})
+		writeBGError(c, err)
 		return
 	}
 
@@ -110,28 +89,7 @@ func PostSessionAction(c *gin.Context) {
 
 	actionResp, err := service.ExecuteSessionAction(sessionID, &actionReq)
 	if err != nil {
-		// Differentiate busy vs not found vs internal
-		status := http.StatusInternalServerError
-		code := "internal_error"
-		msg := err.Error()
-
-		if errors.Is(err, service.ErrSessionNotFound) {
-			status = http.StatusNotFound
-			code = "not_found"
-		} else if errors.Is(err, service.ErrSessionBusy) {
-			status = http.StatusConflict
-			code = "conflict"
-		} else if errors.Is(err, service.ErrSessionTerminal) {
-			status = http.StatusBadRequest
-			code = "invalid_request"
-		} else if errors.Is(err, service.ErrSessionAdapter) {
-			status = http.StatusBadGateway
-			code = "bad_gateway"
-		}
-
-		c.JSON(status, gin.H{
-			"error": gin.H{"code": code, "message": msg},
-		})
+		writeBGError(c, err)
 		return
 	}
 
@@ -150,15 +108,7 @@ func CloseSessionByID(c *gin.Context) {
 
 	sessionResp, err := service.CloseSession(sessionID)
 	if err != nil {
-		status := http.StatusInternalServerError
-		code := "internal_error"
-		if errors.Is(err, service.ErrSessionNotFound) {
-			status = http.StatusNotFound
-			code = "not_found"
-		}
-		c.JSON(status, gin.H{
-			"error": gin.H{"code": code, "message": err.Error()},
-		})
+		writeBGError(c, err)
 		return
 	}
 
