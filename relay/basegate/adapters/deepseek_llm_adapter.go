@@ -180,7 +180,12 @@ func (a *DeepSeekLLMAdapter) Invoke(req *relaycommon.CanonicalRequest) (*relayco
 				ReasoningContent string `json:"reasoning_content,omitempty"`
 			} `json:"message"`
 		} `json:"choices"`
-		Usage relaycommon.ProviderUsage `json:"usage"`
+		Usage struct {
+			PromptTokens         int `json:"prompt_tokens"`
+			CompletionTokens     int `json:"completion_tokens"`
+			TotalTokens          int `json:"total_tokens"`
+			PromptCacheHitTokens int `json:"prompt_cache_hit_tokens"`
+		} `json:"usage"`
 	}
 
 	if err := common.Unmarshal(respBody, &providerResp); err != nil {
@@ -204,10 +209,24 @@ func (a *DeepSeekLLMAdapter) Invoke(req *relaycommon.CanonicalRequest) (*relayco
 		})
 	}
 
+	cachedTokens := providerResp.Usage.PromptCacheHitTokens
+	inputTokens := providerResp.Usage.PromptTokens - cachedTokens
+	if inputTokens < 0 {
+		inputTokens = 0
+	}
+
+	usage := relaycommon.ProviderUsage{
+		PromptTokens:     providerResp.Usage.PromptTokens,
+		CompletionTokens: providerResp.Usage.CompletionTokens,
+		TotalTokens:      providerResp.Usage.TotalTokens,
+		InputTokens:      inputTokens,
+		CachedTokens:     cachedTokens,
+	}
+
 	return &relaycommon.AdapterResult{
 		Status:   "succeeded",
 		Output:   output,
-		RawUsage: &providerResp.Usage,
+		RawUsage: &usage,
 	}, nil
 }
 
@@ -287,14 +306,30 @@ func (a *DeepSeekLLMAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan r
 						ReasoningContent string `json:"reasoning_content,omitempty"`
 					} `json:"delta"`
 				} `json:"choices"`
-				Usage *relaycommon.ProviderUsage `json:"usage,omitempty"`
+				Usage *struct {
+					PromptTokens         int `json:"prompt_tokens"`
+					CompletionTokens     int `json:"completion_tokens"`
+					TotalTokens          int `json:"total_tokens"`
+					PromptCacheHitTokens int `json:"prompt_cache_hit_tokens"`
+				} `json:"usage,omitempty"`
 			}
 			if err := common.Unmarshal(data, &chunk); err != nil {
 				continue // ignoring parsing errors per SSE robustness specs
 			}
 
 			if chunk.Usage != nil {
-				accumulatedUsage = chunk.Usage
+				cachedTokens := chunk.Usage.PromptCacheHitTokens
+				inputTokens := chunk.Usage.PromptTokens - cachedTokens
+				if inputTokens < 0 {
+					inputTokens = 0
+				}
+				accumulatedUsage = &relaycommon.ProviderUsage{
+					PromptTokens:     chunk.Usage.PromptTokens,
+					CompletionTokens: chunk.Usage.CompletionTokens,
+					TotalTokens:      chunk.Usage.TotalTokens,
+					InputTokens:      inputTokens,
+					CachedTokens:     cachedTokens,
+				}
 			}
 
 			if len(chunk.Choices) > 0 {

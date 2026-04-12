@@ -474,6 +474,22 @@ func adapterResultToEvent(result *relaycommon.AdapterResult) ProviderEvent {
 		if u.TotalTokens > 0 {
 			rawMap["total_tokens"] = u.TotalTokens
 		}
+		// Explicit pricing bucket fields for differentiated billing
+		if u.InputTokens > 0 {
+			rawMap["input_tokens"] = u.InputTokens
+		}
+		if u.CachedTokens > 0 {
+			rawMap["cached_tokens"] = u.CachedTokens
+		}
+		if u.CacheCreationTokens > 0 {
+			rawMap["cache_creation_tokens"] = u.CacheCreationTokens
+		}
+		if u.CacheCreationTokens5m > 0 {
+			rawMap["cache_creation_tokens_5m"] = u.CacheCreationTokens5m
+		}
+		if u.CacheCreationTokens1h > 0 {
+			rawMap["cache_creation_tokens_1h"] = u.CacheCreationTokens1h
+		}
 		if u.DurationSec > 0 {
 			rawMap["duration_sec"] = u.DurationSec
 		}

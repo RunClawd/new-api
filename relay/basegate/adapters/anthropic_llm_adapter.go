@@ -202,8 +202,18 @@ func (a *AnthropicLLMAdapter) Invoke(req *relaycommon.CanonicalRequest) (*relayc
 
 	var usage relaycommon.ProviderUsage
 	if providerResp.Usage != nil {
-		usage.PromptTokens = providerResp.Usage.InputTokens
-		usage.CompletionTokens = providerResp.Usage.OutputTokens
+		u := providerResp.Usage
+		usage.PromptTokens = u.InputTokens
+		usage.CompletionTokens = u.OutputTokens
+		usage.CachedTokens = u.CacheReadInputTokens
+		usage.CacheCreationTokens = u.GetCacheCreationTotalTokens()
+		usage.CacheCreationTokens5m = u.GetCacheCreation5mTokens()
+		usage.CacheCreationTokens1h = u.GetCacheCreation1hTokens()
+		// InputTokens = pure non-cache input
+		usage.InputTokens = u.InputTokens - usage.CachedTokens - usage.CacheCreationTokens
+		if usage.InputTokens < 0 {
+			usage.InputTokens = 0
+		}
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	}
 
@@ -291,8 +301,17 @@ func (a *AnthropicLLMAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan 
 			switch currentEvent {
 			case "message_start":
 				if chunk.Message != nil && chunk.Message.Usage != nil {
-					accumulatedUsage.PromptTokens = chunk.Message.Usage.InputTokens
-					accumulatedUsage.CompletionTokens = chunk.Message.Usage.OutputTokens
+					u := chunk.Message.Usage
+					accumulatedUsage.PromptTokens = u.InputTokens
+					accumulatedUsage.CompletionTokens = u.OutputTokens
+					accumulatedUsage.CachedTokens = u.CacheReadInputTokens
+					accumulatedUsage.CacheCreationTokens = u.GetCacheCreationTotalTokens()
+					accumulatedUsage.CacheCreationTokens5m = u.GetCacheCreation5mTokens()
+					accumulatedUsage.CacheCreationTokens1h = u.GetCacheCreation1hTokens()
+					accumulatedUsage.InputTokens = u.InputTokens - accumulatedUsage.CachedTokens - accumulatedUsage.CacheCreationTokens
+					if accumulatedUsage.InputTokens < 0 {
+						accumulatedUsage.InputTokens = 0
+					}
 					accumulatedUsage.TotalTokens = accumulatedUsage.PromptTokens + accumulatedUsage.CompletionTokens
 				}
 			case "content_block_start":
@@ -301,10 +320,25 @@ func (a *AnthropicLLMAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan 
 				}
 			case "message_delta":
 				if chunk.Usage != nil {
-					if accumulatedUsage.PromptTokens == 0 && chunk.Usage.InputTokens > 0 {
-						accumulatedUsage.PromptTokens = chunk.Usage.InputTokens
+					u := chunk.Usage
+					if accumulatedUsage.PromptTokens == 0 && u.InputTokens > 0 {
+						accumulatedUsage.PromptTokens = u.InputTokens
 					}
-					accumulatedUsage.CompletionTokens = chunk.Usage.OutputTokens
+					accumulatedUsage.CompletionTokens = u.OutputTokens
+					// message_delta may carry updated cache fields; use override semantics
+					if u.CacheReadInputTokens > 0 {
+						accumulatedUsage.CachedTokens = u.CacheReadInputTokens
+					}
+					if u.GetCacheCreationTotalTokens() > 0 {
+						accumulatedUsage.CacheCreationTokens = u.GetCacheCreationTotalTokens()
+						accumulatedUsage.CacheCreationTokens5m = u.GetCacheCreation5mTokens()
+						accumulatedUsage.CacheCreationTokens1h = u.GetCacheCreation1hTokens()
+					}
+					// Recalculate InputTokens
+					accumulatedUsage.InputTokens = accumulatedUsage.PromptTokens - accumulatedUsage.CachedTokens - accumulatedUsage.CacheCreationTokens
+					if accumulatedUsage.InputTokens < 0 {
+						accumulatedUsage.InputTokens = 0
+					}
 					accumulatedUsage.TotalTokens = accumulatedUsage.PromptTokens + accumulatedUsage.CompletionTokens
 				}
 			case "content_block_delta":

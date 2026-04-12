@@ -424,6 +424,22 @@ func eventRawUsageToProviderUsage(raw map[string]interface{}) *relaycommon.Provi
 	if v, ok := raw["total_tokens"]; ok {
 		usage.TotalTokens = toInt(v)
 	}
+	// Explicit pricing bucket fields for differentiated billing
+	if v, ok := raw["input_tokens"]; ok {
+		usage.InputTokens = toInt(v)
+	}
+	if v, ok := raw["cached_tokens"]; ok {
+		usage.CachedTokens = toInt(v)
+	}
+	if v, ok := raw["cache_creation_tokens"]; ok {
+		usage.CacheCreationTokens = toInt(v)
+	}
+	if v, ok := raw["cache_creation_tokens_5m"]; ok {
+		usage.CacheCreationTokens5m = toInt(v)
+	}
+	if v, ok := raw["cache_creation_tokens_1h"]; ok {
+		usage.CacheCreationTokens1h = toInt(v)
+	}
 	if v, ok := raw["duration_sec"]; ok {
 		usage.DurationSec = toFloat64(v)
 	}

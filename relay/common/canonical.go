@@ -107,10 +107,18 @@ type AdapterError struct {
 
 // ProviderUsage represents raw usage data from a provider.
 type ProviderUsage struct {
-	// LLM usage
+	// LLM usage — legacy-compatible summary fields
 	PromptTokens     int `json:"prompt_tokens,omitempty"`
 	CompletionTokens int `json:"completion_tokens,omitempty"`
 	TotalTokens      int `json:"total_tokens,omitempty"`
+
+	// Explicit pricing buckets — used by FinalizeBilling for differentiated pricing.
+	// Adapters populate these from provider-specific response fields.
+	InputTokens           int `json:"input_tokens,omitempty"`             // pure non-cache prompt tokens
+	CachedTokens          int `json:"cached_tokens,omitempty"`            // cache hit / cache read
+	CacheCreationTokens   int `json:"cache_creation_tokens,omitempty"`    // total cache write
+	CacheCreationTokens5m int `json:"cache_creation_tokens_5m,omitempty"` // Claude 5-min cache write
+	CacheCreationTokens1h int `json:"cache_creation_tokens_1h,omitempty"` // Claude 1-hour cache write
 
 	// Media usage
 	DurationSec float64 `json:"duration_sec,omitempty"`
@@ -139,11 +147,21 @@ type CanonicalUsage struct {
 }
 
 // PricingSnapshot captures pricing at invocation time (immutable).
+// Ratio fields use omitempty so old snapshots (without ratios) deserialize with zero values.
+// FinalizeBilling applies normalizePricingSnapshot to treat 0 as "use default".
 type PricingSnapshot struct {
 	PricingMode  string  `json:"pricing_mode"`  // metered | per_call | subscription
 	BillableUnit string  `json:"billable_unit"` // token | second | minute | action | request
-	UnitPrice    float64 `json:"unit_price"`
+	UnitPrice    float64 `json:"unit_price"`    // input/base per-token price
 	Currency     string  `json:"currency"`
+
+	// Differentiated pricing ratios (relative to UnitPrice).
+	// Zero means "not set" — normalizePricingSnapshot fills defaults.
+	CompletionRatio      float64 `json:"completion_ratio,omitempty"`        // output multiplier (e.g. 4.0 for GPT-4o)
+	CacheRatio           float64 `json:"cache_ratio,omitempty"`             // cache hit multiplier (e.g. 0.1 for Claude)
+	CacheCreationRatio   float64 `json:"cache_creation_ratio,omitempty"`    // cache write multiplier (e.g. 1.25 for Claude)
+	CacheCreation5mRatio float64 `json:"cache_creation_5m_ratio,omitempty"` // Claude 5-min cache write ratio
+	CacheCreation1hRatio float64 `json:"cache_creation_1h_ratio,omitempty"` // Claude 1-hour cache write ratio
 }
 
 // SessionResult returned when a session-mode capability is invoked.

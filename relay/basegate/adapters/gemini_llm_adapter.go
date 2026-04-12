@@ -126,6 +126,88 @@ func (a *GeminiLLMAdapter) buildPayload(req *relaycommon.CanonicalRequest, upstr
 	return common.Marshal(geminiReq)
 }
 
+func geminiThoughtSignature(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	var signature string
+	if err := common.Unmarshal(raw, &signature); err == nil {
+		return signature
+	}
+
+	return strings.Trim(string(raw), `"`)
+}
+
+func buildGeminiReasoningOutput(reasoningText string, thoughtSignature string) []relaycommon.OutputItem {
+	if reasoningText == "" && thoughtSignature == "" {
+		return nil
+	}
+
+	content := map[string]interface{}{}
+	if reasoningText != "" {
+		content["text"] = reasoningText
+	}
+	if thoughtSignature != "" {
+		content["thought_signature"] = thoughtSignature
+	}
+
+	return []relaycommon.OutputItem{{
+		Type:    "reasoning",
+		Content: content,
+	}}
+}
+
+func buildGeminiOutput(candidate dto.GeminiChatCandidate) []relaycommon.OutputItem {
+	output := make([]relaycommon.OutputItem, 0, 2)
+	var textParts []string
+	var reasoningParts []string
+	thoughtSignature := ""
+
+	for _, part := range candidate.Content.Parts {
+		if sig := geminiThoughtSignature(part.ThoughtSignature); sig != "" && thoughtSignature == "" {
+			thoughtSignature = sig
+		}
+
+		if part.Thought {
+			if part.Text != "" {
+				reasoningParts = append(reasoningParts, part.Text)
+			}
+			continue
+		}
+
+		if part.Text != "" {
+			textParts = append(textParts, part.Text)
+		}
+	}
+
+	output = append(output, buildGeminiReasoningOutput(strings.Join(reasoningParts, ""), thoughtSignature)...)
+	if len(textParts) > 0 {
+		output = append(output, relaycommon.OutputItem{
+			Type:    "text",
+			Content: strings.Join(textParts, ""),
+		})
+	}
+
+	return output
+}
+
+func buildGeminiUsage(metadata dto.GeminiUsageMetadata) relaycommon.ProviderUsage {
+	completionTokens := metadata.CandidatesTokenCount + metadata.ThoughtsTokenCount
+	cachedTokens := metadata.CachedContentTokenCount
+	inputTokens := metadata.PromptTokenCount - cachedTokens
+	if inputTokens < 0 {
+		inputTokens = 0
+	}
+	return relaycommon.ProviderUsage{
+		PromptTokens:     metadata.PromptTokenCount,
+		CompletionTokens: completionTokens,
+		TotalTokens:      metadata.TotalTokenCount,
+		InputTokens:      inputTokens,
+		CachedTokens:     cachedTokens,
+	}
+}
+
 func (a *GeminiLLMAdapter) Invoke(req *relaycommon.CanonicalRequest) (*relaycommon.AdapterResult, error) {
 	upstreamModel, ok := a.modelMap[req.Model]
 	if !ok {
@@ -193,22 +275,12 @@ func (a *GeminiLLMAdapter) Invoke(req *relaycommon.CanonicalRequest) (*relaycomm
 
 	var output []relaycommon.OutputItem
 	if len(providerResp.Candidates) > 0 {
-		cand := providerResp.Candidates[0]
-		if len(cand.Content.Parts) > 0 {
-			if cand.Content.Parts[0].Text != "" {
-				output = append(output, relaycommon.OutputItem{
-					Type:    "text",
-					Content: cand.Content.Parts[0].Text,
-				})
-			}
-		}
+		output = buildGeminiOutput(providerResp.Candidates[0])
 	}
 
 	var usage relaycommon.ProviderUsage
 	if providerResp.UsageMetadata.TotalTokenCount > 0 {
-		usage.PromptTokens = providerResp.UsageMetadata.PromptTokenCount
-		usage.CompletionTokens = providerResp.UsageMetadata.CandidatesTokenCount
-		usage.TotalTokens = providerResp.UsageMetadata.TotalTokenCount
+		usage = buildGeminiUsage(providerResp.UsageMetadata)
 	}
 
 	return &relaycommon.AdapterResult{
@@ -257,6 +329,8 @@ func (a *GeminiLLMAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan rel
 
 		reader := bufio.NewReader(resp.Body)
 		var accumulatedText string
+		var accumulatedReasoning string
+		var thoughtSignature string
 		var accumulatedUsage relaycommon.ProviderUsage
 
 		for {
@@ -291,15 +365,32 @@ func (a *GeminiLLMAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan rel
 			}
 
 			if chunk.UsageMetadata.TotalTokenCount > 0 {
-				accumulatedUsage.PromptTokens = chunk.UsageMetadata.PromptTokenCount
-				accumulatedUsage.CompletionTokens = chunk.UsageMetadata.CandidatesTokenCount
-				accumulatedUsage.TotalTokens = chunk.UsageMetadata.TotalTokenCount
+				accumulatedUsage = buildGeminiUsage(chunk.UsageMetadata)
 			}
 
 			if len(chunk.Candidates) > 0 {
 				cand := chunk.Candidates[0]
-				if len(cand.Content.Parts) > 0 {
-					deltaText := cand.Content.Parts[0].Text
+				for _, part := range cand.Content.Parts {
+					if sig := geminiThoughtSignature(part.ThoughtSignature); sig != "" && thoughtSignature == "" {
+						thoughtSignature = sig
+					}
+
+					deltaText := part.Text
+					if part.Thought {
+						if deltaText != "" {
+							accumulatedReasoning += deltaText
+							ch <- relaycommon.SSEEvent{
+								Type: "reasoning_delta",
+								Data: relaycommon.TextDeltaData{
+									ItemIndex:  0,
+									Delta:      deltaText,
+									OutputText: accumulatedReasoning,
+								},
+							}
+						}
+						continue
+					}
+
 					if deltaText != "" {
 						accumulatedText += deltaText
 						ch <- relaycommon.SSEEvent{
@@ -320,12 +411,16 @@ func (a *GeminiLLMAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan rel
 			Data: map[string]interface{}{
 				"status":    "succeeded",
 				"raw_usage": &accumulatedUsage,
-				"output": []relaycommon.OutputItem{
-					{
-						Type:    "text",
-						Content: accumulatedText,
-					},
-				},
+				"output": func() []relaycommon.OutputItem {
+					output := buildGeminiReasoningOutput(accumulatedReasoning, thoughtSignature)
+					if accumulatedText != "" {
+						output = append(output, relaycommon.OutputItem{
+							Type:    "text",
+							Content: accumulatedText,
+						})
+					}
+					return output
+				}(),
 			},
 		}
 

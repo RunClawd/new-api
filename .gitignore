@@ -10,6 +10,7 @@ build
 logs
 web/dist
 .env
+.env.local
 one-api
 new-api
 /__debug_bin*

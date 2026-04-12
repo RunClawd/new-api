@@ -171,7 +171,15 @@ func (a *OpenAILLMAdapter) Invoke(req *relaycommon.CanonicalRequest) (*relaycomm
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
-		Usage relaycommon.ProviderUsage `json:"usage"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+			PromptTokensDetails struct {
+				CachedTokens         int `json:"cached_tokens"`
+				CachedCreationTokens int `json:"cached_creation_tokens"`
+			} `json:"prompt_tokens_details"`
+		} `json:"usage"`
 	}
 
 	if err := common.Unmarshal(respBody, &providerResp); err != nil {
@@ -186,10 +194,26 @@ func (a *OpenAILLMAdapter) Invoke(req *relaycommon.CanonicalRequest) (*relaycomm
 		})
 	}
 
+	cachedTokens := providerResp.Usage.PromptTokensDetails.CachedTokens
+	cacheCreationTokens := providerResp.Usage.PromptTokensDetails.CachedCreationTokens
+	inputTokens := providerResp.Usage.PromptTokens - cachedTokens - cacheCreationTokens
+	if inputTokens < 0 {
+		inputTokens = 0
+	}
+
+	usage := relaycommon.ProviderUsage{
+		PromptTokens:        providerResp.Usage.PromptTokens,
+		CompletionTokens:    providerResp.Usage.CompletionTokens,
+		TotalTokens:         providerResp.Usage.TotalTokens,
+		InputTokens:         inputTokens,
+		CachedTokens:        cachedTokens,
+		CacheCreationTokens: cacheCreationTokens,
+	}
+
 	return &relaycommon.AdapterResult{
 		Status:   "succeeded",
 		Output:   output,
-		RawUsage: &providerResp.Usage,
+		RawUsage: &usage,
 	}, nil
 }
 
@@ -262,14 +286,35 @@ func (a *OpenAILLMAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan rel
 						Content string `json:"content"`
 					} `json:"delta"`
 				} `json:"choices"`
-				Usage *relaycommon.ProviderUsage `json:"usage,omitempty"`
+				Usage *struct {
+					PromptTokens     int `json:"prompt_tokens"`
+					CompletionTokens int `json:"completion_tokens"`
+					TotalTokens      int `json:"total_tokens"`
+					PromptTokensDetails struct {
+						CachedTokens         int `json:"cached_tokens"`
+						CachedCreationTokens int `json:"cached_creation_tokens"`
+					} `json:"prompt_tokens_details"`
+				} `json:"usage,omitempty"`
 			}
 			if err := common.Unmarshal([]byte(dataStr), &chunk); err != nil {
 				continue
 			}
 
 			if chunk.Usage != nil {
-				accumulatedUsage = chunk.Usage
+				cachedTokens := chunk.Usage.PromptTokensDetails.CachedTokens
+				cacheCreationTokens := chunk.Usage.PromptTokensDetails.CachedCreationTokens
+				inputTokens := chunk.Usage.PromptTokens - cachedTokens - cacheCreationTokens
+				if inputTokens < 0 {
+					inputTokens = 0
+				}
+				accumulatedUsage = &relaycommon.ProviderUsage{
+					PromptTokens:        chunk.Usage.PromptTokens,
+					CompletionTokens:    chunk.Usage.CompletionTokens,
+					TotalTokens:         chunk.Usage.TotalTokens,
+					InputTokens:         inputTokens,
+					CachedTokens:        cachedTokens,
+					CacheCreationTokens: cacheCreationTokens,
+				}
 			}
 
 			if len(chunk.Choices) > 0 {

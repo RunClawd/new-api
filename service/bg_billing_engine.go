@@ -150,10 +150,7 @@ func FinalizeBilling(
 			return fmt.Errorf("usage insert failed: %w", err)
 		}
 
-		var amount float64
-		if pricing != nil && pricing.UnitPrice != 0 {
-			amount = canonicalUsage.BillableUnits * pricing.UnitPrice
-		}
+		amount := calculateDifferentiatedAmount(pricing, canonicalUsage)
 
 		if billingSource == "byo" {
 			if feeConfig != nil {
@@ -349,7 +346,8 @@ func buildCanonicalUsage(rawUsage *relaycommon.ProviderUsage) *relaycommon.Canon
 }
 
 // LookupPricing bridges BaseGate pricing to the existing ratio_setting system.
-// Phase 5: reads model ratio from the system-wide configuration.
+// Reads model_ratio, completion_ratio, cache_ratio, and create_cache_ratio to
+// produce a PricingSnapshot with differentiated per-token pricing.
 func LookupPricing(modelName string, billingSource string) *relaycommon.PricingSnapshot {
 	value, usePrice, exists := ratio_setting.GetModelRatioOrPrice(modelName)
 	if !exists {
@@ -364,22 +362,134 @@ func LookupPricing(modelName string, billingSource string) *relaycommon.PricingS
 	if usePrice {
 		// Price-based model (e.g. dall-e, suno): value is direct $ per request/image
 		return &relaycommon.PricingSnapshot{
-			PricingMode:  "per_call",
-			BillableUnit: "request",
-			UnitPrice:    value,
-			Currency:     "usd",
+			PricingMode:     "per_call",
+			BillableUnit:    "request",
+			UnitPrice:       value,
+			Currency:        "usd",
+			CompletionRatio: 1,
+			CacheRatio:      1,
 		}
 	}
 
 	// Ratio-based model: value is the ratio (1 = $0.002/1K tokens)
 	// Convert ratio to per-token price: ratio * $0.002 / 1000 = ratio * 0.000002
 	perTokenPrice := value * 0.002 / 1000.0
-	return &relaycommon.PricingSnapshot{
-		PricingMode:  "metered",
-		BillableUnit: "token",
-		UnitPrice:    perTokenPrice,
-		Currency:     "usd",
+
+	completionRatio := ratio_setting.GetCompletionRatio(modelName)
+	cacheRatio := 1.0
+	if cr, ok := ratio_setting.GetCacheRatio(modelName); ok {
+		cacheRatio = cr
 	}
+	cacheCreationRatio := 1.25
+	if cwr, ok := ratio_setting.GetCreateCacheRatio(modelName); ok {
+		cacheCreationRatio = cwr
+	}
+
+	return &relaycommon.PricingSnapshot{
+		PricingMode:        "metered",
+		BillableUnit:       "token",
+		UnitPrice:          perTokenPrice,
+		Currency:           "usd",
+		CompletionRatio:    completionRatio,
+		CacheRatio:         cacheRatio,
+		CacheCreationRatio: cacheCreationRatio,
+		// 5m/1h ratios: same as base cache creation ratio by default.
+		// Claude-specific split ratios are only distinguished if admin configures them.
+		CacheCreation5mRatio: cacheCreationRatio,
+		CacheCreation1hRatio: cacheCreationRatio,
+	}
+}
+
+// normalizedPricing holds backward-compatible pricing ratios.
+// Zero values from old PricingSnapshotJSON are replaced with safe defaults.
+type normalizedPricing struct {
+	UnitPrice            float64
+	CompletionRatio      float64
+	CacheRatio           float64
+	CacheCreationRatio   float64
+	CacheCreation5mRatio float64
+	CacheCreation1hRatio float64
+}
+
+// normalizePricingSnapshot fills zero-valued ratio fields with safe defaults.
+// This ensures old PricingSnapshotJSON (without ratio fields) doesn't bill at 0x.
+func normalizePricingSnapshot(pricing *relaycommon.PricingSnapshot) normalizedPricing {
+	p := normalizedPricing{UnitPrice: pricing.UnitPrice}
+
+	p.CompletionRatio = pricing.CompletionRatio
+	if p.CompletionRatio == 0 {
+		p.CompletionRatio = 1
+	}
+	p.CacheRatio = pricing.CacheRatio
+	if p.CacheRatio == 0 {
+		p.CacheRatio = 1
+	}
+	p.CacheCreationRatio = pricing.CacheCreationRatio
+	if p.CacheCreationRatio == 0 {
+		p.CacheCreationRatio = 1.25
+	}
+	p.CacheCreation5mRatio = pricing.CacheCreation5mRatio
+	if p.CacheCreation5mRatio == 0 {
+		p.CacheCreation5mRatio = p.CacheCreationRatio
+	}
+	p.CacheCreation1hRatio = pricing.CacheCreation1hRatio
+	if p.CacheCreation1hRatio == 0 {
+		p.CacheCreation1hRatio = p.CacheCreationRatio
+	}
+	return p
+}
+
+// calculateDifferentiatedAmount computes the billing amount using token-level
+// differentiated pricing. Falls back to BillableUnits*UnitPrice for non-token usage.
+func calculateDifferentiatedAmount(pricing *relaycommon.PricingSnapshot, canonical *relaycommon.CanonicalUsage) float64 {
+	if pricing == nil || pricing.UnitPrice == 0 {
+		return 0
+	}
+
+	// Non-token billing (second/minute/action/request/per_call): simple multiply
+	if canonical.BillableUnit != "token" {
+		return canonical.BillableUnits * pricing.UnitPrice
+	}
+
+	raw := canonical.RawUsage
+	if raw == nil {
+		// No raw usage detail — fall back to total tokens
+		return canonical.BillableUnits * pricing.UnitPrice
+	}
+
+	p := normalizePricingSnapshot(pricing)
+
+	// Use explicit InputTokens bucket if available; otherwise fall back to PromptTokens
+	inputTokens := raw.InputTokens
+	if inputTokens == 0 && raw.PromptTokens > 0 {
+		inputTokens = raw.PromptTokens
+	}
+
+	cachedTokens := raw.CachedTokens
+	cacheCreationTokens := raw.CacheCreationTokens
+	cacheCreationTokens5m := raw.CacheCreationTokens5m
+	cacheCreationTokens1h := raw.CacheCreationTokens1h
+	completionTokens := raw.CompletionTokens
+
+	// Normalize cache creation total from split buckets if needed
+	if cacheCreationTokens == 0 && (cacheCreationTokens5m > 0 || cacheCreationTokens1h > 0) {
+		cacheCreationTokens = cacheCreationTokens5m + cacheCreationTokens1h
+	}
+
+	// Remaining cache creation tokens not covered by 5m/1h splits
+	remainingCacheCreation := cacheCreationTokens - cacheCreationTokens5m - cacheCreationTokens1h
+	if remainingCacheCreation < 0 {
+		remainingCacheCreation = 0
+	}
+
+	inputCost := float64(inputTokens) * p.UnitPrice
+	outputCost := float64(completionTokens) * p.UnitPrice * p.CompletionRatio
+	cacheHitCost := float64(cachedTokens) * p.UnitPrice * p.CacheRatio
+	cacheWriteCost := float64(remainingCacheCreation) * p.UnitPrice * p.CacheCreationRatio
+	cacheWrite5mCost := float64(cacheCreationTokens5m) * p.UnitPrice * p.CacheCreation5mRatio
+	cacheWrite1hCost := float64(cacheCreationTokens1h) * p.UnitPrice * p.CacheCreation1hRatio
+
+	return inputCost + outputCost + cacheHitCost + cacheWriteCost + cacheWrite5mCost + cacheWrite1hCost
 }
 
 // FinalizeSessionBilling is the billing pipeline for closed sessions.
