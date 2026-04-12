@@ -101,6 +101,63 @@ func RegisterNativeAdapters() {
 		common.SysLog(fmt.Sprintf("bg_init: total OpenAI native adapters registered: %d", count))
 	}
 
+	// --- Anthropic LLM adapters ---
+	var anthropicChannels []*model.Channel
+	if err := model.DB.Where("type = ? AND status = 1", constant.ChannelTypeAnthropic).Find(&anthropicChannels).Error; err != nil {
+		common.SysError("bg_init: failed to load anthropic channels: " + err.Error())
+	} else {
+		count := 0
+		for _, ch := range anthropicChannels {
+			keys := ch.GetKeys()
+			if len(keys) == 0 {
+				continue
+			}
+			adapter := adapters.NewAnthropicLLMAdapter(ch.Id, ch.Name, keys[0], ch.GetBaseURL())
+			basegate.RegisterAdapter(adapter)
+			count++
+			common.SysLog(fmt.Sprintf("bg_init: registered native adapter anthropic_native_ch%d", ch.Id))
+		}
+		common.SysLog(fmt.Sprintf("bg_init: total Anthropic native adapters registered: %d", count))
+	}
+
+	// --- DeepSeek LLM adapters ---
+	var deepseekChannels []*model.Channel
+	if err := model.DB.Where("type = ? AND status = 1", constant.ChannelTypeDeepSeek).Find(&deepseekChannels).Error; err != nil {
+		common.SysError("bg_init: failed to load deepseek channels: " + err.Error())
+	} else {
+		count := 0
+		for _, ch := range deepseekChannels {
+			keys := ch.GetKeys()
+			if len(keys) == 0 {
+				continue
+			}
+			adapter := adapters.NewDeepSeekLLMAdapter(ch.Id, ch.Name, keys[0], ch.GetBaseURL())
+			basegate.RegisterAdapter(adapter)
+			count++
+			common.SysLog(fmt.Sprintf("bg_init: registered native adapter deepseek_native_ch%d", ch.Id))
+		}
+		common.SysLog(fmt.Sprintf("bg_init: total DeepSeek native adapters registered: %d", count))
+	}
+
+	// --- Gemini LLM adapters ---
+	var geminiChannels []*model.Channel
+	if err := model.DB.Where("type = ? AND status = 1", constant.ChannelTypeGemini).Find(&geminiChannels).Error; err != nil {
+		common.SysError("bg_init: failed to load gemini channels: " + err.Error())
+	} else {
+		count := 0
+		for _, ch := range geminiChannels {
+			keys := ch.GetKeys()
+			if len(keys) == 0 {
+				continue
+			}
+			adapter := adapters.NewGeminiLLMAdapter(ch.Id, ch.Name, keys[0], ch.GetBaseURL())
+			basegate.RegisterAdapter(adapter)
+			count++
+			common.SysLog(fmt.Sprintf("bg_init: registered native adapter gemini_native_ch%d", ch.Id))
+		}
+		common.SysLog(fmt.Sprintf("bg_init: total Gemini native adapters registered: %d", count))
+	}
+
 	// --- Kling Video adapters ---
 	var klingChannels []*model.Channel
 	if err := model.DB.Where("type = ? AND status = 1", constant.ChannelTypeKling).Find(&klingChannels).Error; err != nil {

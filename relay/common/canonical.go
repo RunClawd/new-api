@@ -14,16 +14,16 @@ type CanonicalRequest struct {
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 
 	// Tenant context
-	OrgID      int    `json:"org_id"`
-	ProjectID  int    `json:"project_id"`
-	ApiKeyID   int    `json:"api_key_id"`
-	EndUserID  string `json:"end_user_id,omitempty"`
+	OrgID     int    `json:"org_id"`
+	ProjectID int    `json:"project_id"`
+	ApiKeyID  int    `json:"api_key_id"`
+	EndUserID string `json:"end_user_id,omitempty"`
 
 	// Capability
-	Model  string            `json:"model"`
-	Domain string            `json:"domain,omitempty"`
-	Action string            `json:"action,omitempty"`
-	Tier   string            `json:"tier,omitempty"`
+	Model  string `json:"model"`
+	Domain string `json:"domain,omitempty"`
+	Action string `json:"action,omitempty"`
+	Tier   string `json:"tier,omitempty"`
 
 	// Input
 	Input interface{} `json:"input"`
@@ -43,15 +43,15 @@ type CanonicalRequest struct {
 
 // ExecutionOptions controls how the request is executed.
 type ExecutionOptions struct {
-	Mode       string `json:"mode"`                  // sync | async | stream | session
+	Mode       string `json:"mode"` // sync | async | stream | session
 	WebhookURL string `json:"webhook_url,omitempty"`
 	TimeoutMs  int    `json:"timeout_ms,omitempty"`
 }
 
 // BillingContext provides billing-related information for the request.
 type BillingContext struct {
-	BillingSource   string `json:"billing_source"`              // hosted | byo
-	BYOCredentialID string `json:"byo_credential_id,omitempty"`
+	BillingSource   string `json:"billing_source"` // hosted | byo
+	BYOCredentialID int64  `json:"byo_credential_id,omitempty"`
 }
 
 // CredentialOverride allows BYO credentials to be injected per-adapter.
@@ -164,15 +164,15 @@ type CapabilityBinding struct {
 	Weight            int     `json:"weight"`
 	Region            string  `json:"region,omitempty"`
 	CostPerUnit       float64 `json:"cost_per_unit,omitempty"`
-	SupportsStreaming  bool    `json:"supports_streaming"`
+	SupportsStreaming bool    `json:"supports_streaming"`
 	SupportsAsync     bool    `json:"supports_async"`
 	MaxConcurrency    int     `json:"max_concurrency,omitempty"`
 }
 
 // ValidationResult from ProviderAdapter.Validate.
 type ValidationResult struct {
-	Valid   bool         `json:"valid"`
-	Error   *AdapterError `json:"error,omitempty"`
+	Valid bool          `json:"valid"`
+	Error *AdapterError `json:"error,omitempty"`
 	// Resolved values that the adapter determined
 	ResolvedModel string `json:"resolved_model,omitempty"` // actual upstream model name
 }

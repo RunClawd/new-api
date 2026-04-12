@@ -37,7 +37,7 @@ func CreateSession(req *relaycommon.CanonicalRequest) (*dto.BGSessionResponse, e
 	var lastValidAdapter bool
 
 	for _, providerAdapter := range adapters {
-		sessionAdapter, ok := providerAdapter.(basegate.SessionCapableAdapter)
+		sessionAdapter, ok := providerAdapter.Adapter.(basegate.SessionCapableAdapter)
 		if !ok {
 			continue
 		}
@@ -49,11 +49,16 @@ func CreateSession(req *relaycommon.CanonicalRequest) (*dto.BGSessionResponse, e
 		}
 		lastValidAdapter = true
 
-		providerResult, providerErr = sessionAdapter.CreateSession(req)
-		if providerErr != nil {
+		attemptReq := *req
+		attemptReq.CredentialOverride = providerAdapter.CredentialOverride
+		
+		result, err := sessionAdapter.CreateSession(&attemptReq)
+		if err != nil {
+			providerErr = err
 			common.SysLog(fmt.Sprintf("fallback: %s failed to create session: %v", sessionAdapter.Name(), providerErr))
 			continue
 		}
+		providerResult = result
 		// Success
 		selectedAdapter = sessionAdapter
 		break
@@ -71,6 +76,20 @@ func CreateSession(req *relaycommon.CanonicalRequest) (*dto.BGSessionResponse, e
 	now := time.Now().Unix()
 
 	// Initial DB record
+	attemptID := relaycommon.GenerateAttemptID()
+	attempt := &model.BgResponseAttempt{
+		AttemptID:     attemptID,
+		ResponseID:    req.ResponseID,
+		AttemptNo:     1, // Simplify for sessions for now
+		AdapterName:   selectedAdapter.Name(),
+		Status:        model.BgAttemptStatusDispatching,
+		StatusVersion: 1,
+		StartedAt:     time.Now().Unix(),
+	}
+	if err := attempt.Insert(); err != nil {
+		common.SysError("failed to create session attempt: " + err.Error())
+	}
+
 	bgSess := &model.BgSession{
 		SessionID:         sessionID,
 		ResponseID:        req.ResponseID, // Link to orchestrator response

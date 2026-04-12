@@ -55,6 +55,7 @@ func TestMain(m *testing.M) {
 		&model.BgSessionAction{},
 		&model.BgWebhookEvent{},
 		&model.BgAuditLog{},
+		&model.BgBYOCredential{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}

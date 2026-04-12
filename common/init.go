@@ -61,6 +61,9 @@ func InitEnv() {
 	} else {
 		CryptoSecret = SessionSecret
 	}
+	if os.Getenv("BYO_ENCRYPTION_KEY") != "" {
+		BYOEncryptionKey = os.Getenv("BYO_ENCRYPTION_KEY")
+	}
 	if os.Getenv("SQLITE_PATH") != "" {
 		SQLitePath = os.Getenv("SQLITE_PATH")
 	}

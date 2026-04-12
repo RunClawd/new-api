@@ -25,6 +25,18 @@ type ReservationResult struct {
 // EstimateCost produces a rough cost estimate in quota units (1 quota unit = $0.002 / 500 tokens).
 // This is intentionally conservative (overestimates) to avoid post-hoc billing surprises.
 func EstimateCost(pricing *relaycommon.PricingSnapshot, input interface{}, feeConfig *relaycommon.BYOFeeConfig) int {
+	// BYO Platform Fee Early Calculation (if BYO mode is active)
+	if feeConfig != nil {
+		if feeConfig.FeeType == "per_request" && feeConfig.FixedAmount > 0 {
+			quotaCost := int(feeConfig.FixedAmount * 500000)
+			if quotaCost < 1 {
+				quotaCost = 1
+			}
+			return quotaCost
+		}
+		// If percentage, we need the base hypothetical cost, which we'll calculate below.
+	}
+
 	if pricing == nil || pricing.UnitPrice == 0 {
 		return 0 // free model or no pricing configured — no pre-auth needed
 	}
@@ -47,19 +59,22 @@ func EstimateCost(pricing *relaycommon.PricingSnapshot, input interface{}, feeCo
 		estimatedUnits = 5 // 5 minutes minimum for sessions
 	case "action":
 		estimatedUnits = 1
-	case "request":
-		estimatedUnits = 1
+	case "per_call":
+		estimatedUnits = 1 // 1 API call
 	default:
 		estimatedUnits = 1
 	}
 
-	// Convert to quota units: amount = units * unitPrice, then to quota (1 quota = $0.002 / 500)
-	amount := estimatedUnits * pricing.UnitPrice
-	// The existing system uses quota units where 1 unit ≈ $0.002/1K tokens
-	// Use a simple ratio: quotaCost = amount / 0.002 * 500
-	// But for simplicity, we'll just use the raw amount * 500000 as integer quota units
-	quotaCost := int(amount * 500000)
-	if quotaCost < 1 && amount > 0 {
+	estimatedCost := estimatedUnits * pricing.UnitPrice
+
+	// Apply percentage calculation if in BYO percentage mode
+	if feeConfig != nil && feeConfig.FeeType == "percentage" {
+		estimatedCost = estimatedCost * feeConfig.PercentageRate
+	}
+
+	// Convert USD to quota units (1 USD = 500,000 Quota)
+	quotaCost := int(estimatedCost * 500000)
+	if quotaCost < 1 && estimatedCost > 0 {
 		quotaCost = 1 // minimum 1 quota unit if there's any cost
 	}
 	return quotaCost

@@ -13,7 +13,8 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
-type OpenAILLMAdapter struct {
+// DeepSeekLLMAdapter mimicking OpenAI for deepseek-reasoner
+type DeepSeekLLMAdapter struct {
 	channelID   int
 	channelName string
 	apiKey      string
@@ -22,57 +23,55 @@ type OpenAILLMAdapter struct {
 	transport   http.RoundTripper
 }
 
-func (a *OpenAILLMAdapter) SetTransport(t http.RoundTripper) {
+var _ basegate.ProviderAdapter = (*DeepSeekLLMAdapter)(nil)
+
+func NewDeepSeekLLMAdapter(channelID int, channelName string, apiKey string, baseURL string) *DeepSeekLLMAdapter {
+	if baseURL == "" {
+		baseURL = "https://api.deepseek.com"
+	} else {
+		baseURL = strings.TrimSuffix(baseURL, "/")
+	}
+	return &DeepSeekLLMAdapter{
+		channelID:   channelID,
+		channelName: channelName,
+		apiKey:      apiKey,
+		baseURL:     baseURL,
+		modelMap: map[string]string{
+			"bg.llm.reasoning.pro": "deepseek-reasoner",
+			"bg.llm.chat.pro":      "deepseek-chat",
+		},
+	}
+}
+
+func (a *DeepSeekLLMAdapter) SetTransport(t http.RoundTripper) {
 	a.transport = t
 }
 
-func (a *OpenAILLMAdapter) resolveAPIKey(req *relaycommon.CanonicalRequest) string {
+func (a *DeepSeekLLMAdapter) resolveAPIKey(req *relaycommon.CanonicalRequest) string {
 	if req.CredentialOverride != nil && req.CredentialOverride.APIKey != "" {
 		return req.CredentialOverride.APIKey
 	}
 	return a.apiKey
 }
 
-func (a *OpenAILLMAdapter) getClient() *http.Client {
+func (a *DeepSeekLLMAdapter) getClient() *http.Client {
 	if a.transport != nil {
 		return &http.Client{Transport: a.transport}
 	}
 	return &http.Client{}
 }
 
-var _ basegate.ProviderAdapter = (*OpenAILLMAdapter)(nil)
-
-func NewOpenAILLMAdapter(channelID int, channelName string, apiKey string, baseURL string) *OpenAILLMAdapter {
-	if baseURL == "" {
-		baseURL = "https://api.openai.com"
-	} else {
-		baseURL = strings.TrimSuffix(baseURL, "/")
-	}
-	return &OpenAILLMAdapter{
-		channelID:   channelID,
-		channelName: channelName,
-		apiKey:      apiKey,
-		baseURL:     baseURL,
-		modelMap: map[string]string{
-			"bg.llm.chat.fast":     "gpt-5.4-nano",
-			"bg.llm.chat.standard": "gpt-5.4-mini",
-			"bg.llm.chat.pro":      "gpt-5.4",
-			"bg.llm.reasoning.pro": "gpt-5.4-pro",
-		},
-	}
+func (a *DeepSeekLLMAdapter) Name() string {
+	return fmt.Sprintf("deepseek_native_ch%d", a.channelID)
 }
 
-func (a *OpenAILLMAdapter) Name() string {
-	return fmt.Sprintf("openai_native_ch%d", a.channelID)
-}
-
-func (a *OpenAILLMAdapter) DescribeCapabilities() []relaycommon.CapabilityBinding {
+func (a *DeepSeekLLMAdapter) DescribeCapabilities() []relaycommon.CapabilityBinding {
 	var bindings []relaycommon.CapabilityBinding
 	for key, upstream := range a.modelMap {
 		bindings = append(bindings, relaycommon.CapabilityBinding{
 			CapabilityPattern: key,
 			AdapterName:       a.Name(),
-			Provider:          "openai",
+			Provider:          "deepseek",
 			UpstreamModel:     upstream,
 			Priority:          0,
 			Weight:            1,
@@ -81,20 +80,30 @@ func (a *OpenAILLMAdapter) DescribeCapabilities() []relaycommon.CapabilityBindin
 	return bindings
 }
 
-func (a *OpenAILLMAdapter) Validate(req *relaycommon.CanonicalRequest) *relaycommon.ValidationResult {
+func (a *DeepSeekLLMAdapter) Validate(req *relaycommon.CanonicalRequest) *relaycommon.ValidationResult {
 	if _, ok := a.modelMap[req.Model]; !ok {
 		return &relaycommon.ValidationResult{
 			Valid: false,
-			Error:   &relaycommon.AdapterError{Code: "not_supported", Message: "unsupported model"},
+			Error: &relaycommon.AdapterError{Code: "not_supported", Message: "unsupported model"},
 		}
 	}
 	return &relaycommon.ValidationResult{Valid: true}
 }
 
-func (a *OpenAILLMAdapter) buildPayload(req *relaycommon.CanonicalRequest, stream bool) ([]byte, error) {
-	upstreamModel := a.modelMap[req.Model]
+func (a *DeepSeekLLMAdapter) Poll(providerRequestID string) (*relaycommon.AdapterResult, error) {
+	return nil, fmt.Errorf("poll not supported for chat")
+}
 
-	// req.Input should be a map representing the JSON body
+func (a *DeepSeekLLMAdapter) Cancel(providerRequestID string) (*relaycommon.AdapterResult, error) {
+	return nil, fmt.Errorf("cancel not supported for chat")
+}
+
+func (a *DeepSeekLLMAdapter) buildPayload(req *relaycommon.CanonicalRequest, stream bool) ([]byte, error) {
+	upstreamModel, ok := a.modelMap[req.Model]
+	if !ok {
+		upstreamModel = req.Model // Passthrough
+	}
+
 	var payload map[string]interface{}
 	if inputJSON, err := common.Marshal(req.Input); err == nil {
 		if err := common.Unmarshal(inputJSON, &payload); err != nil {
@@ -110,13 +119,13 @@ func (a *OpenAILLMAdapter) buildPayload(req *relaycommon.CanonicalRequest, strea
 	return common.Marshal(payload)
 }
 
-func (a *OpenAILLMAdapter) Invoke(req *relaycommon.CanonicalRequest) (*relaycommon.AdapterResult, error) {
+func (a *DeepSeekLLMAdapter) Invoke(req *relaycommon.CanonicalRequest) (*relaycommon.AdapterResult, error) {
 	payloadBytes, err := a.buildPayload(req, false)
 	if err != nil {
 		return nil, err
 	}
 
-	url := fmt.Sprintf("%s/v1/chat/completions", a.baseURL)
+	url := fmt.Sprintf("%s/chat/completions", a.baseURL)
 	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return nil, err
@@ -167,22 +176,31 @@ func (a *OpenAILLMAdapter) Invoke(req *relaycommon.CanonicalRequest) (*relaycomm
 	var providerResp struct {
 		Choices []struct {
 			Message struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content,omitempty"`
 			} `json:"message"`
 		} `json:"choices"`
 		Usage relaycommon.ProviderUsage `json:"usage"`
 	}
 
 	if err := common.Unmarshal(respBody, &providerResp); err != nil {
-		return nil, fmt.Errorf("parse provider response failed: %w", err)
+		return nil, fmt.Errorf("failed to parse DeepSeek response: %w", err)
 	}
 
 	var output []relaycommon.OutputItem
-	for _, c := range providerResp.Choices {
+	if len(providerResp.Choices) > 0 {
+		msg := providerResp.Choices[0].Message
+
+		// Include reasoning output explicitly if present
+		if msg.ReasoningContent != "" {
+			output = append(output, relaycommon.OutputItem{
+				Type:    "reasoning",
+				Content: msg.ReasoningContent, // BaseGate internal mapping
+			})
+		}
 		output = append(output, relaycommon.OutputItem{
 			Type:    "text",
-			Content: c.Message.Content,
+			Content: msg.Content,
 		})
 	}
 
@@ -193,13 +211,13 @@ func (a *OpenAILLMAdapter) Invoke(req *relaycommon.CanonicalRequest) (*relaycomm
 	}, nil
 }
 
-func (a *OpenAILLMAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan relaycommon.SSEEvent, error) {
+func (a *DeepSeekLLMAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan relaycommon.SSEEvent, error) {
 	payloadBytes, err := a.buildPayload(req, true)
 	if err != nil {
 		return nil, err
 	}
 
-	url := fmt.Sprintf("%s/v1/chat/completions", a.baseURL)
+	url := fmt.Sprintf("%s/chat/completions", a.baseURL)
 	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return nil, err
@@ -227,45 +245,52 @@ func (a *OpenAILLMAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan rel
 		defer close(ch)
 
 		reader := bufio.NewReader(resp.Body)
-
 		var accumulatedText string
+		var accumulatedReasoning string
 		var accumulatedUsage *relaycommon.ProviderUsage
 
 		for {
-			line, err := reader.ReadString('\n')
+			line, err := reader.ReadBytes('\n')
 			if err != nil {
 				if err == io.EOF {
-					break
+					break // clean stream end usually yields [DONE] before EOF
 				}
 				ch <- relaycommon.SSEEvent{
 					Type: relaycommon.SSEEventError,
-					Data: relaycommon.ErrorData{
-						Code:    "stream_error",
-						Message: err.Error(),
+					Data: map[string]interface{}{
+						"code":    "stream_error",
+						"message": err.Error(),
 					},
 				}
 				break
 			}
-			line = strings.TrimSpace(line)
-			if line == "" || !strings.HasPrefix(line, "data: ") {
+			line = bytes.TrimSpace(line)
+			if len(line) == 0 {
 				continue
 			}
 
-			dataStr := strings.TrimPrefix(line, "data: ")
-			if dataStr == "[DONE]" {
+			// "data: ..." format
+			if !bytes.HasPrefix(line, []byte("data:")) {
+				continue
+			}
+			data := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
+
+			if string(data) == "[DONE]" {
 				break
 			}
 
+			// Parse chunk
 			var chunk struct {
 				Choices []struct {
 					Delta struct {
-						Content string `json:"content"`
+						Content          string `json:"content"`
+						ReasoningContent string `json:"reasoning_content,omitempty"`
 					} `json:"delta"`
 				} `json:"choices"`
 				Usage *relaycommon.ProviderUsage `json:"usage,omitempty"`
 			}
-			if err := common.Unmarshal([]byte(dataStr), &chunk); err != nil {
-				continue
+			if err := common.Unmarshal(data, &chunk); err != nil {
+				continue // ignoring parsing errors per SSE robustness specs
 			}
 
 			if chunk.Usage != nil {
@@ -273,48 +298,58 @@ func (a *OpenAILLMAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan rel
 			}
 
 			if len(chunk.Choices) > 0 {
-				delta := chunk.Choices[0].Delta.Content
-				if delta != "" {
-					accumulatedText += delta
+				deltaContent := chunk.Choices[0].Delta.Content
+				deltaReasoning := chunk.Choices[0].Delta.ReasoningContent
+				
+				if deltaContent != "" {
+					accumulatedText += deltaContent
 					ch <- relaycommon.SSEEvent{
 						Type: relaycommon.SSEEventTextDelta,
 						Data: relaycommon.TextDeltaData{
 							ItemIndex:  0,
-							Delta:      delta,
+							Delta:      deltaContent,
 							OutputText: accumulatedText,
+						},
+					}
+				}
+
+				if deltaReasoning != "" {
+					accumulatedReasoning += deltaReasoning
+					ch <- relaycommon.SSEEvent{
+						Type: "reasoning_delta", // Custom internal type
+						Data: relaycommon.TextDeltaData{
+							ItemIndex:  0,
+							Delta:      deltaReasoning,
+							OutputText: accumulatedReasoning,
 						},
 					}
 				}
 			}
 		}
 
-		// Send output format alignment according to schema
+		// Yield terminal metadata packet
+		var finalOutput []relaycommon.OutputItem
+		if accumulatedReasoning != "" {
+			finalOutput = append(finalOutput, relaycommon.OutputItem{Type: "reasoning", Content: accumulatedReasoning})
+		}
+		if accumulatedText != "" {
+			finalOutput = append(finalOutput, relaycommon.OutputItem{Type: "text", Content: accumulatedText})
+		}
+
 		ch <- relaycommon.SSEEvent{
 			Type: relaycommon.SSEEventResponseSucceeded,
 			Data: map[string]interface{}{
 				"status":    "succeeded",
 				"raw_usage": accumulatedUsage,
-				"output": []relaycommon.OutputItem{
-					{
-						Type:    "text",
-						Content: accumulatedText,
-					},
-				},
+				"output":    finalOutput,
 			},
 		}
 
+		// Close transmission loop
 		ch <- relaycommon.SSEEvent{
 			Type: relaycommon.SSEEventDone,
 		}
 	}()
 
 	return ch, nil
-}
-
-func (a *OpenAILLMAdapter) Poll(providerRequestID string) (*relaycommon.AdapterResult, error) {
-	return nil, fmt.Errorf("poll not supported for sync/stream chat capabilities")
-}
-
-func (a *OpenAILLMAdapter) Cancel(providerRequestID string) (*relaycommon.AdapterResult, error) {
-	return nil, fmt.Errorf("cancel not supported for chat")
 }

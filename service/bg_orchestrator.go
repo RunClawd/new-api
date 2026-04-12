@@ -68,16 +68,16 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 		return nil, fmt.Errorf("no adapters found for model: %s", req.Model)
 	}
 
-	billingSource := req.BillingContext.BillingSource
+	billingSource := adapters[0].BillingSource
 	if billingSource == "" {
 		billingSource = "hosted"
 	}
-	// 3. Freeze pricing snapshot at invocation time
+	// 3. Freeze pricing snapshot at invocation time based on primary adapter
 	pricingSnapshot := LookupPricing(req.Model, billingSource)
 	snapshotJSON, _ := common.Marshal(pricingSnapshot)
 
 	// 3a. Pre-authorization: estimate cost and reserve quota (Sync = quota-only, no estimated billing record)
-	estimatedQuota := EstimateCost(pricingSnapshot, req.Input, nil)
+	estimatedQuota := EstimateCost(pricingSnapshot, req.Input, adapters[0].FeeConfig)
 	if err := ReserveQuota(req.OrgID, estimatedQuota); err != nil {
 		return nil, err // ErrInsufficientQuota
 	}
@@ -96,6 +96,8 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 		StatusVersion:       1,
 		IdempotencyKey:      req.IdempotencyKey,
 		BillingSource:       billingSource,
+		BYOCredentialID:     adapters[0].BYOCredentialID,
+		FeeConfigJSON:       serializeFeeConfigJSON(adapters[0].FeeConfig),
 		BillingMode:         billingSource, // legacy
 		PricingSnapshotJSON: string(snapshotJSON),
 		CreatedAt:           now,
@@ -122,32 +124,47 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 	// 5. Fallback loop for Sync Invocation
 	for i, adapter := range adapters {
 		// Circuit breaker check — skip adapters whose circuit is OPEN
-		if !basegate.CanAttempt(adapter.Name()) {
-			common.SysLog(fmt.Sprintf("fallback: %s circuit open, skipping", adapter.Name()))
+		if !basegate.CanAttempt(adapter.Adapter.Name()) {
+			common.SysLog(fmt.Sprintf("fallback: %s circuit open, skipping", adapter.Adapter.Name()))
 			if i < len(adapters)-1 {
 				continue
 			}
 			return nil, fmt.Errorf("all adapters unavailable (circuit open)")
 		}
 
-		validation := adapter.Validate(req)
+		// Inject Credentials Override on a shallow copy of req
+		attemptReq := *req
+		attemptReq.CredentialOverride = adapter.CredentialOverride
+
+		validation := adapter.Adapter.Validate(&attemptReq)
 		if validation != nil && !validation.Valid {
-			common.SysLog(fmt.Sprintf("fallback: %s invalidated pre-execution", adapter.Name()))
+			common.SysLog(fmt.Sprintf("fallback: %s invalidated pre-execution", adapter.Adapter.Name()))
 			if i < len(adapters)-1 {
 				continue
 			}
 			return nil, fmt.Errorf("all adapters failed validation")
 		}
 
+		attemptBillingSource := adapter.BillingSource
+		if attemptBillingSource == "" {
+			attemptBillingSource = "hosted"
+		}
+		attemptSnapshot := LookupPricing(req.Model, attemptBillingSource)
+		attemptSnapshotJSON, _ := common.Marshal(attemptSnapshot)
+
 		attemptID := relaycommon.GenerateAttemptID()
 		attempt := &model.BgResponseAttempt{
-			AttemptID:     attemptID,
-			ResponseID:    req.ResponseID,
-			AttemptNo:     i + 1,
-			AdapterName:   adapter.Name(),
-			Status:        model.BgAttemptStatusDispatching,
-			StatusVersion: 1,
-			StartedAt:     time.Now().Unix(),
+			AttemptID:           attemptID,
+			ResponseID:          req.ResponseID,
+			AttemptNo:           i + 1,
+			AdapterName:         adapter.Adapter.Name(),
+			Status:              model.BgAttemptStatusDispatching,
+			StatusVersion:       1,
+			BillingSource:       attemptBillingSource,
+			BYOCredentialID:     adapter.BYOCredentialID,
+			FeeConfigJSON:       serializeFeeConfigJSON(adapter.FeeConfig),
+			PricingSnapshotJSON: string(attemptSnapshotJSON),
+			StartedAt:           time.Now().Unix(),
 		}
 		if err := attempt.Insert(); err != nil {
 			return nil, fmt.Errorf("failed to create attempt record: %w", err)
@@ -155,11 +172,11 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 
 		bgResp.ActiveAttemptID = attempt.ID
 
-		result, invokeErr := adapter.Invoke(req)
+		result, invokeErr := adapter.Adapter.Invoke(&attemptReq)
 
 		if invokeErr != nil {
-			common.SysLog(fmt.Sprintf("fallback: %s failed pre-execution (invoke err): %v", adapter.Name(), invokeErr))
-			basegate.RecordFailure(adapter.Name())
+			common.SysLog(fmt.Sprintf("fallback: %s failed pre-execution (invoke err): %v", adapter.Adapter.Name(), invokeErr))
+			basegate.RecordFailure(adapter.Adapter.Name())
 			event := ProviderEvent{
 				Status: "failed",
 				Error: map[string]interface{}{
@@ -175,8 +192,8 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 		}
 
 		if result.Status == "failed" && result.Error != nil && result.Error.Code == "provider_unavailable" {
-			common.SysLog(fmt.Sprintf("fallback: %s returned provider_unavailable: %s", adapter.Name(), result.Error.Message))
-			basegate.RecordFailure(adapter.Name())
+			common.SysLog(fmt.Sprintf("fallback: %s returned provider_unavailable: %s", adapter.Adapter.Name(), result.Error.Message))
+			basegate.RecordFailure(adapter.Adapter.Name())
 			_ = ApplyProviderEvent(req.ResponseID, attemptID, adapterResultToEvent(result))
 			if i < len(adapters)-1 {
 				continue // try next
@@ -185,7 +202,10 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 		}
 
 		// Success or un-retryable failure
-		basegate.RecordSuccess(adapter.Name())
+		basegate.RecordSuccess(adapter.Adapter.Name())
+		if adapterResultAccepted(result) {
+			bestEffortAdoptWinningAdapterMetadata(bgResp.ID, adapter)
+		}
 		_ = ApplyProviderEvent(req.ResponseID, attemptID, adapterResultToEvent(result))
 		break
 	}
@@ -214,17 +234,17 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 		return nil, fmt.Errorf("no adapters found for model: %s", req.Model)
 	}
 
-	billingSource := req.BillingContext.BillingSource
+	billingSource := adapters[0].BillingSource
 	if billingSource == "" {
 		billingSource = "hosted"
 	}
 
-	// 3. Freeze pricing snapshot at invocation time
+	// 3. Freeze pricing snapshot at invocation time based on primary adapter
 	pricingSnapshot := LookupPricing(req.Model, billingSource)
 	snapshotJSON, _ := common.Marshal(pricingSnapshot)
 
 	// 3a. Pre-authorization: estimate cost and reserve quota (Async = quota + estimated billing record)
-	estimatedQuota := EstimateCost(pricingSnapshot, req.Input, nil)
+	estimatedQuota := EstimateCost(pricingSnapshot, req.Input, adapters[0].FeeConfig)
 	reservation, err := ReserveQuotaWithBillingHold(
 		req.OrgID, req.ProjectID,
 		req.ResponseID, req.Model,
@@ -238,18 +258,20 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 	// 4. Create response record
 	now := time.Now().Unix()
 	bgResp := &model.BgResponse{
-		ResponseID:          req.ResponseID,
-		RequestID:           req.RequestID,
-		OrgID:               req.OrgID,
-		ProjectID:           req.ProjectID,
-		ApiKeyID:            req.ApiKeyID,
-		EndUserID:           req.EndUserID,
-		Model:               req.Model,
-		Status:              model.BgResponseStatusAccepted,
-		StatusVersion:       1,
-		IdempotencyKey:      req.IdempotencyKey,
-		BillingSource:       billingSource,
-		BillingMode:         billingSource, // legacy
+		ResponseID:               req.ResponseID,
+		RequestID:                req.RequestID,
+		OrgID:                    req.OrgID,
+		ProjectID:                req.ProjectID,
+		ApiKeyID:                 req.ApiKeyID,
+		EndUserID:                req.EndUserID,
+		Model:                    req.Model,
+		Status:                   model.BgResponseStatusAccepted,
+		StatusVersion:            1,
+		IdempotencyKey:           req.IdempotencyKey,
+		BillingSource:            billingSource,
+		BYOCredentialID:          adapters[0].BYOCredentialID,
+		FeeConfigJSON:            serializeFeeConfigJSON(adapters[0].FeeConfig),
+		BillingMode:              billingSource, // legacy
 		PricingSnapshotJSON:      string(snapshotJSON),
 		EstimatedQuota:           estimatedQuota,
 		ReservationBillingID:     reservation.BillingID,
@@ -275,32 +297,46 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 	// 5. Fallback loop for Async Invocation
 	for i, adapter := range adapters {
 		// Circuit breaker check — skip adapters whose circuit is OPEN
-		if !basegate.CanAttempt(adapter.Name()) {
-			common.SysLog(fmt.Sprintf("fallback: %s circuit open, skipping", adapter.Name()))
+		if !basegate.CanAttempt(adapter.Adapter.Name()) {
+			common.SysLog(fmt.Sprintf("fallback: %s circuit open, skipping", adapter.Adapter.Name()))
 			if i < len(adapters)-1 {
 				continue
 			}
 			return nil, fmt.Errorf("all adapters unavailable (circuit open)")
 		}
 
-		validation := adapter.Validate(req)
+		attemptReq := *req
+		attemptReq.CredentialOverride = adapter.CredentialOverride
+
+		validation := adapter.Adapter.Validate(&attemptReq)
 		if validation != nil && !validation.Valid {
-			common.SysLog(fmt.Sprintf("fallback: %s invalidated pre-execution", adapter.Name()))
+			common.SysLog(fmt.Sprintf("fallback: %s invalidated pre-execution", adapter.Adapter.Name()))
 			if i < len(adapters)-1 {
 				continue
 			}
 			return nil, fmt.Errorf("all adapters failed validation")
 		}
 
+		attemptBillingSource := adapter.BillingSource
+		if attemptBillingSource == "" {
+			attemptBillingSource = "hosted"
+		}
+		attemptSnapshot := LookupPricing(req.Model, attemptBillingSource)
+		attemptSnapshotJSON, _ := common.Marshal(attemptSnapshot)
+
 		attemptID := relaycommon.GenerateAttemptID()
 		attempt := &model.BgResponseAttempt{
-			AttemptID:     attemptID,
-			ResponseID:    req.ResponseID,
-			AttemptNo:     i + 1,
-			AdapterName:   adapter.Name(),
-			Status:        model.BgAttemptStatusDispatching,
-			StatusVersion: 1,
-			StartedAt:     time.Now().Unix(),
+			AttemptID:           attemptID,
+			ResponseID:          req.ResponseID,
+			AttemptNo:           i + 1,
+			AdapterName:         adapter.Adapter.Name(),
+			Status:              model.BgAttemptStatusDispatching,
+			StatusVersion:       1,
+			BillingSource:       attemptBillingSource,
+			BYOCredentialID:     adapter.BYOCredentialID,
+			FeeConfigJSON:       serializeFeeConfigJSON(adapter.FeeConfig),
+			PricingSnapshotJSON: string(attemptSnapshotJSON),
+			StartedAt:           time.Now().Unix(),
 		}
 		if err := attempt.Insert(); err != nil {
 			return nil, fmt.Errorf("failed to create attempt record: %w", err)
@@ -308,11 +344,11 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 
 		bgResp.ActiveAttemptID = attempt.ID
 
-		result, invokeErr := adapter.Invoke(req)
+		result, invokeErr := adapter.Adapter.Invoke(&attemptReq)
 
 		if invokeErr != nil {
-			common.SysLog(fmt.Sprintf("fallback: %s failed pre-execution (invoke err): %v", adapter.Name(), invokeErr))
-			basegate.RecordFailure(adapter.Name())
+			common.SysLog(fmt.Sprintf("fallback: %s failed pre-execution (invoke err): %v", adapter.Adapter.Name(), invokeErr))
+			basegate.RecordFailure(adapter.Adapter.Name())
 			event := ProviderEvent{
 				Status: "failed",
 				Error: map[string]interface{}{
@@ -328,8 +364,8 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 		}
 
 		if result.Status == "failed" && result.Error != nil && result.Error.Code == "provider_unavailable" {
-			common.SysLog(fmt.Sprintf("fallback: %s returned provider_unavailable: %s", adapter.Name(), result.Error.Message))
-			basegate.RecordFailure(adapter.Name())
+			common.SysLog(fmt.Sprintf("fallback: %s returned provider_unavailable: %s", adapter.Adapter.Name(), result.Error.Message))
+			basegate.RecordFailure(adapter.Adapter.Name())
 			_ = ApplyProviderEvent(req.ResponseID, attemptID, adapterResultToEvent(result))
 			if i < len(adapters)-1 {
 				continue
@@ -337,7 +373,10 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 			break
 		}
 
-		basegate.RecordSuccess(adapter.Name())
+		basegate.RecordSuccess(adapter.Adapter.Name())
+		if adapterResultAccepted(result) {
+			bestEffortAdoptWinningAdapterMetadata(bgResp.ID, adapter)
+		}
 		event := adapterResultToEvent(result)
 		_ = ApplyProviderEvent(req.ResponseID, attemptID, event)
 		break

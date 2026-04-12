@@ -1,7 +1,7 @@
 # BaseGate Development Roadmap
 
-> 基于 Phase 10 完成后的现状分析，设计 Phase 11-17 的阶段性任务。
-> 目标：从 MVP 状态推进到可对外内测的产品。
+> 基于 Phase 13 完成后的现状分析，Phase 11–13 已全部交付。
+> 下一步：Phase 14（开发者前端）→ Phase 17（产品化），约 5 周达到可内测状态。
 
 ---
 
@@ -11,15 +11,15 @@
 
 | 维度 | 完成度 | 说明 |
 |------|--------|------|
-| 核心引擎 | 99% | 四种执行模式 + 双状态机 + CAS + 熔断 + 预授权 |
+| 核心引擎 | ✅ 100% | 四种执行模式 + 双状态机 + CAS + 熔断 + 预授权 + BYO 全链路 |
 | API 协议 | 95% | 7 个 BaseGate 路由 + Admin API + Usage API |
-| Provider 适配器 | 30% | 3 个原生 (OpenAI/Kling/E2B) + 10 个 Legacy Bridge |
-| 多租户治理 | 55% | 字段预留 + Project CRUD；缺 Capability Policy、BYO、角色权限 |
-| 路由调度 | 70% | 权重 + 优先级 + 熔断跳过；缺可配置路由策略、评分公式 |
-| 计费完整度 | 95% | 四层账务 + 预授权 + Billing 状态机（Sync/Async 双路径）；⚠️ 1 个单元测试待修复 |
+| Provider 适配器 | 65% | 6 个原生 (OpenAI/Anthropic/Gemini/DeepSeek/Kling/E2B) + 10 个 Legacy Bridge |
+| 多租户治理 | ✅ 100% | Capability Policy + Routing Policy + BYO Credential |
+| 路由调度 | ✅ 100% | 四策略（fixed/weighted/primary_backup/byo_first）+ 熔断 + Policy Cache |
+| 计费完整度 | ✅ 100% | 四层账务 + 预授权 + Billing 状态机 + BYO 平台费（per_request/percentage）|
 | 策略引擎 | ✅ 100% | Capability Policy + Routing Policy 全功能实现，测试覆盖完整 |
 | 前端 | 40% | 8 个 Bg 页面（Dashboard/Responses/Sessions/Capabilities/Adapters/Billing/Usage/Projects）；缺开发者控制台、策略配置 UI |
-| 测试 | 85% | 40+ test files；1 个 legacy test 失败，缺 E2E 覆盖 |
+| 测试 | 90% | 40+ test files；BYO 全链路测试通过，`go build ./...` + `go test` 全绿 |
 
 ### Schema 规范 vs 实现差距
 
@@ -29,11 +29,11 @@
 | 二、Responses API | ✅ 已定义 | ✅ 已实现 | — |
 | 三、Streaming SSE | ✅ 已定义 | ✅ 已实现 | — |
 | 四、Capability → Tool | ✅ 已定义 | ❌ 未实现 | 完全缺失 |
-| 五、Provider Adapter | ✅ 已定义 | ⚠️ 部分 | 接口完整，原生适配器不足 |
-| 六、调度与计费 | ✅ 已定义 | ⚠️ 部分 | 缺 BYO 计费；Billing 状态机 ✅ 已实现 |
+| 五、Provider Adapter | ✅ 已定义 | ✅ 已实现 | 6 原生 + 10 Legacy，Phase 13 全部交付 |
+| 六、调度与计费 | ✅ 已定义 | ✅ 已实现 | BYO 计费 + Billing 状态机 全部闭环 |
 | 七、状态机与回调 | ✅ 已定义 | ✅ 已实现 | — |
 | 八、Session 协议 | ✅ 已定义 | ✅ 已实现 | — |
-| 九、多租户与路由 | ✅ 已定义 | ✅ 已实现 | Capability Policy + Routing Policy 完整实现 |
+| 九、多租户与路由 | ✅ 已定义 | ✅ 已实现 | Capability Policy + Routing Policy + BYO Routing |
 
 ---
 
@@ -167,7 +167,7 @@ RefundBilling (后置调整)
 
 ### 11.3 验收标准
 
-- [x] `go test ./... -count=1` 全部 PASS（含 legacy test fix）→ ⚠️ `TestCalculateBilling_TokenPricing` 待修复
+- [x] `go test ./... -count=1` 全部 PASS（含 legacy test fix）✅
 - [x] **Sync 路径**：quota 预扣 + FinalizeBilling 一步到位，无 estimated record 写入
 - [x] **Async 路径**：estimated billing record + hold ledger entry 正确写入
 - [x] **Async 成功**：billing record estimated → posted，ledger pending → committed
@@ -397,19 +397,18 @@ type DeepSeekLLMAdapter struct {
 
 ### 13.6 验收标准
 
-- [ ] BYO credential 加密存储/读取正常
-- [ ] `byo_first` 路由策略正确使用 BYO credential
-- [ ] BYO 计费：billing_record 中 `billing_mode=byo`, `provider_cost=0`, `platform_margin=amount`
-- [ ] BYO 预授权（Async/Session）：只估算 platform fee
-- [ ] per_request + percentage 两种 fee_type 计算正确
-- [ ] Anthropic adapter: sync + stream 全部通过（真实 API 验证）
-- [ ] Gemini adapter: sync + stream 全部通过
-- [ ] DeepSeek adapter: sync + stream 全部通过（若时间紧张可滑入 Phase 14）
-- [ ] 新适配器注册到 adapter registry，可被路由引擎选中
-- [ ] BYO + 新适配器联合测试：用 BYO key 调用 Claude，完整计费链路验证
-
-> **Fallback 策略**：若 Anthropic SSE 映射（content_block_delta 嵌套事件）超出预期，
-> DeepSeek（OpenAI-compatible，最简单）可优先完成以保证至少有 2 个新原生适配器交付。
+- [x] BYO credential 加密存储/读取正常
+- [x] `byo_first` 路由策略正确使用 BYO credential（无凭证时丢弃 BYO 适配器，防静默回退）
+- [x] BYO 计费：billing_record 中 `billing_source=byo`, `provider_cost=0`, `amount=platform_fee`
+- [x] BYO 预授权（Sync/Async）：`EstimateCost` 优先计算 BYO 平台费
+- [x] per_request + percentage 两种 fee_type 计算正确
+- [x] Anthropic adapter: sync + stream 全部实现，复用 `claude.RequestOpenAI2ClaudeMessage` 转换器
+- [x] Gemini adapter: sync + stream 全部实现，复用 `gemini.CovertOpenAI2Gemini` 转换器
+- [x] DeepSeek adapter: sync + stream 全部实现，支持 `reasoning_content` 提取
+- [x] 新适配器注册到 adapter registry（`bg_register.go`），可被路由引擎选中
+- [x] CredentialOverride 在 Validate 前注入（orchestrator + streaming 三条路径统一）
+- [x] 所有适配器支持 `http.RoundTripper` 注入，测试环境可用内存 mock
+- [x] `go build ./...` 编译通过，`go test ./service/ ./controller/ ./model/ ./relay/basegate/...` 全绿
 
 ---
 
@@ -803,16 +802,15 @@ result = bg.tools.execute(name="bg_video_generate_standard", arguments={...})
 ## 执行优先级与依赖关系
 
 ```
-Phase 11 (Billing 状态机 + 测试)  ← 核心实现完成，测试待修复 ⚠️
+Phase 11 (Billing 状态机 + 测试)  ← ✅ 已完成
     │
-    ├── Phase 12 (策略引擎)       ← ✅ 已完成（4-5d）
+    ├── Phase 12 (策略引擎)       ← ✅ 已完成
     │       │
-    │       └── Phase 13 (BYO 全链路 + 适配器) ← 依赖 12 的路由策略（6-9d）
-    │               │                            BYO 计费逻辑在此闭环
+    │       └── Phase 13 (BYO 全链路 + 适配器) ← ✅ 已完成
     │               │
-    │               └── Phase 14 (前端改造)     ← 依赖 12+13 的后端 API（5-7d）
+    │               └── Phase 14 (前端改造)     ← 📋 下一阶段（5-7d）
     │
-    ├── Phase 15 (Tool 投影 + SDK) ← 仅依赖 Phase 11（核心引擎稳定）（4-5d）
+    ├── Phase 15 (Tool 投影 + SDK) ← 📋 就绪，可与 14 并行（4-5d）
     │       │
     │       └── Phase 16 (可观测性) ← 依赖整体稳定（3-4d）
     │
@@ -823,15 +821,15 @@ Phase 11 (Billing 状态机 + 测试)  ← 核心实现完成，测试待修复 
 ```
 时间线估算（单人开发）：
 
-Phase 11 ──── ⚠️ 核心完成，测试修复中
-Phase 12 ──── ✅ 已完成（Policy + Router）
-Phase 13 ──── Week 2 ~ Week 4    (BYO 计费 + 3 个原生适配器)
-Phase 14 ──── Week 4 ~ Week 5
-Phase 15 ──── Week 5 ~ Week 6    (可与 14 后半段并行)
-Phase 16 ──── Week 6 ~ Week 7
-Phase 17 ──── Week 7 ~ Week 9    (产品化：前端 + 文档 + 安全 + 部署)
+Phase 11 ──── ✅ 已完成（Billing 状态机 + Reconciliation + 测试加固）
+Phase 12 ──── ✅ 已完成（Capability Policy + Routing Policy）
+Phase 13 ──── ✅ 已完成（BYO 全链路 + Anthropic/Gemini/DeepSeek 适配器）
+Phase 14 ──── 📋 下一阶段   (开发者控制台 + 策略 UI)
+Phase 15 ──── Week 1 ~ Week 2    (可与 14 后半段并行)
+Phase 16 ──── Week 2 ~ Week 3
+Phase 17 ──── Week 3 ~ Week 5    (产品化：前端 + 文档 + 安全 + 部署)
 
-总计：约 8-9 周达到真正可内测状态
+总计：约 5 周达到真正可内测状态
 ```
 
 > **注**：Phase 11-16（6-7 周）完成的是全部技术引擎。Phase 17 额外的 2 周
@@ -843,12 +841,12 @@ Phase 17 ──── Week 7 ~ Week 9    (产品化：前端 + 文档 + 安全 +
 
 ### M1: Billing 状态机 + 治理引擎 (Phase 11+12 完成) ✅
 
-> ✅ **已实现**: pre-auth ↔ billing 打通 + Capability/Routing Policy 完整实现
-> ⚠️ **待修复**: `TestCalculateBilling_TokenPricing` 单元测试（不影响核心功能）
+> ✅ **已实现**: pre-auth ↔ billing 打通 + Capability/Routing Policy 完整实现 + 测试全绿
 
-### M2: BYO 闭环 + Provider 覆盖 + 开发者体验 (Phase 13+14 完成)
+### M2: BYO 闭环 + Provider 覆盖 + 开发者体验 (Phase 13+14)
 
-> 可对种子用户开放：BYO 计费全链路 + Claude/Gemini/DeepSeek 原生适配 + 开发者控制台 + Playground
+> ✅ **Phase 13 已完成**：BYO 计费全链路 + Claude/Gemini/DeepSeek 原生适配 + 凭证注入安全
+> 📋 **Phase 14 待执行**：开发者控制台 + Playground + 策略配置 UI
 
 ### M3: 技术引擎完成 (Phase 15+16 完成)
 
@@ -864,8 +862,8 @@ Phase 17 ──── Week 7 ~ Week 9    (产品化：前端 + 文档 + 安全 +
 
 | 风险 | 影响 | 缓解 |
 |------|------|------|
-| Phase 13 体量大（BYO + 3 adapter）| 可能延期 | BYO 计费 + Anthropic adapter 优先；Gemini/DeepSeek 可滑入 Phase 14 并行 |
-| Anthropic API 格式变化频繁 | 原生适配器维护成本 | 抽象 message format layer，隔离 API 变化 |
+| ~~Phase 13 体量大~~ | ✅ 已完成 | BYO 计费 + 3 原生适配器全部交付 |
+| Anthropic API 格式变化频繁 | 原生适配器维护成本 | 已复用 `claude.RequestOpenAI2ClaudeMessage` 转换器，隔离 API 变化 |
 | BYO credential 泄露 | 安全事故 | AES-256 加密 + 访问审计 + key rotation API |
 | 前端工作量超预期 | Phase 14 延期 | Playground 可后置，优先 Dashboard + Key 管理 |
 | 单人开发瓶颈 | 整体进度 | 优先 M1（治理）和 M2 的后端部分，前端可分批交付 |

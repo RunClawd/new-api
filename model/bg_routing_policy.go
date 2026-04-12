@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
 // BgRoutingPolicy represents a routing strategy for capabilities.
@@ -37,7 +38,9 @@ type PrimaryBackupRules struct {
 }
 
 type BYOFirstRules struct {
-	BYOAdapterPattern string `json:"byo_adapter_pattern"`
+	FallbackToHosted bool                      `json:"fallback_to_hosted"`
+	Provider         string                    `json:"provider"` // Replaces pattern matcher
+	FeeConfig        *relaycommon.BYOFeeConfig `json:"fee_config"`
 }
 
 // Validate checks structural constraints and parses RulesJSON logically.
@@ -108,8 +111,23 @@ func (p *BgRoutingPolicy) Validate() error {
 		if err := common.Unmarshal([]byte(p.RulesJSON), &r); err != nil {
 			return fmt.Errorf("invalid rules_json for byo_first strategy: %w", err)
 		}
-		if r.BYOAdapterPattern == "" {
-			return fmt.Errorf("byo_first strategy requires 'byo_adapter_pattern'")
+		if r.Provider == "" {
+			return fmt.Errorf("provider must be specified for byo_first strategy")
+		}
+		if r.FeeConfig == nil {
+			return fmt.Errorf("fee_config must be specified for byo_first strategy")
+		}
+		switch r.FeeConfig.FeeType {
+		case "per_request":
+			if r.FeeConfig.FixedAmount <= 0 {
+				return fmt.Errorf("per_request requires positive fixed_amount")
+			}
+		case "percentage":
+			if r.FeeConfig.PercentageRate <= 0 || r.FeeConfig.PercentageRate > 1 {
+				return fmt.Errorf("percentage_rate must be in (0, 1]")
+			}
+		default:
+			return fmt.Errorf("fee_type must be 'per_request' or 'percentage'")
 		}
 	}
 

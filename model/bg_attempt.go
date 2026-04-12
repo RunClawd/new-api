@@ -32,7 +32,11 @@ type BgResponseAttempt struct {
 	AdapterName       string          `json:"adapter_name" gorm:"type:varchar(100)"`
 	ProviderRequestID string          `json:"provider_request_id" gorm:"type:varchar(191)"`
 	Status            BgAttemptStatus `json:"status" gorm:"type:varchar(20);index;not null;default:'dispatching'"`
-	StatusVersion     int             `json:"status_version" gorm:"not null;default:1"`
+	StatusVersion       int             `json:"status_version" gorm:"not null;default:1"`
+	BillingSource       string          `json:"billing_source" gorm:"type:varchar(10);default:'hosted'"`
+	BYOCredentialID     int64           `json:"byo_credential_id" gorm:"default:0"`
+	FeeConfigJSON       string          `json:"-" gorm:"type:text"`
+	PricingSnapshotJSON string          `json:"-" gorm:"type:text"`
 	ErrorJSON         string          `json:"error_json" gorm:"type:text"`
 	StartedAt         int64           `json:"started_at" gorm:"default:0"`
 	AcceptedAt        int64           `json:"accepted_at" gorm:"default:0"`

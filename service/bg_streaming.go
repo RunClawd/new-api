@@ -24,7 +24,7 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 		return fmt.Errorf("no adapter found for model: %s", req.Model)
 	}
 
-	billingSource := req.BillingContext.BillingSource
+	billingSource := adapters[0].BillingSource
 	if billingSource == "" {
 		billingSource = "hosted"
 	}
@@ -32,21 +32,23 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 	// 2. Create response record
 	now := time.Now().Unix()
 	bgResp := &model.BgResponse{
-		ResponseID:     req.ResponseID,
-		RequestID:      req.RequestID,
-		OrgID:          req.OrgID,
-		ProjectID:      req.ProjectID,
-		ApiKeyID:       req.ApiKeyID,
-		EndUserID:      req.EndUserID,
-		Model:          req.Model,
-		Status:         model.BgResponseStatusStreaming, // Starts off actively streaming
-		StatusVersion:  1,
-		IdempotencyKey: req.IdempotencyKey,
-		BillingSource:  billingSource,
-		BillingMode:    billingSource, // legacy
-		WebhookURL:     req.ExecutionOptions.WebhookURL,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ResponseID:      req.ResponseID,
+		RequestID:       req.RequestID,
+		OrgID:           req.OrgID,
+		ProjectID:       req.ProjectID,
+		ApiKeyID:        req.ApiKeyID,
+		EndUserID:       req.EndUserID,
+		Model:           req.Model,
+		Status:          model.BgResponseStatusStreaming, // Starts off actively streaming
+		StatusVersion:   1,
+		IdempotencyKey:  req.IdempotencyKey,
+		BillingSource:   billingSource,
+		BYOCredentialID: adapters[0].BYOCredentialID,
+		FeeConfigJSON:   serializeFeeConfigJSON(adapters[0].FeeConfig),
+		BillingMode:     billingSource, // legacy
+		WebhookURL:      req.ExecutionOptions.WebhookURL,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 	inputJSON, _ := common.Marshal(req.Input)
 	bgResp.InputJSON = string(inputJSON)
@@ -57,7 +59,7 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 	bgResp.PricingSnapshotJSON = string(snapshotJSON)
 
 	// Pre-auth: Sync-equivalent quota reservation (Stream = Sync lifecycle)
-	estimatedQuota := EstimateCost(pricingSnapshot, req.Input, nil)
+	estimatedQuota := EstimateCost(pricingSnapshot, req.Input, adapters[0].FeeConfig)
 	if err := ReserveQuota(req.OrgID, estimatedQuota); err != nil {
 		return err // 402 insufficient quota
 	}
@@ -79,33 +81,47 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 	// 4. Fallback Loop
 	for i, adapter := range adapters {
 		// Circuit breaker check — skip adapters whose circuit is OPEN
-		if !basegate.CanAttempt(adapter.Name()) {
-			common.SysLog(fmt.Sprintf("fallback: %s circuit open, skipping", adapter.Name()))
+		if !basegate.CanAttempt(adapter.Adapter.Name()) {
+			common.SysLog(fmt.Sprintf("fallback: %s circuit open, skipping", adapter.Adapter.Name()))
 			if i < len(adapters)-1 {
 				continue
 			}
 			return fmt.Errorf("all adapters unavailable (circuit open)")
 		}
 
-		validation := adapter.Validate(req)
+		attemptReq := *req
+		attemptReq.CredentialOverride = adapter.CredentialOverride
+
+		validation := adapter.Adapter.Validate(&attemptReq)
 		if validation != nil && !validation.Valid {
-			common.SysLog(fmt.Sprintf("fallback: %s invalidated pre-execution", adapter.Name()))
+			common.SysLog(fmt.Sprintf("fallback: %s invalidated pre-execution", adapter.Adapter.Name()))
 			if i < len(adapters)-1 {
 				continue
 			}
 			return fmt.Errorf("all adapters failed validation")
 		}
 
+		attemptBillingSource := adapter.BillingSource
+		if attemptBillingSource == "" {
+			attemptBillingSource = "hosted"
+		}
+		attemptSnapshot := LookupPricing(req.Model, attemptBillingSource)
+		attemptSnapshotJSON, _ := common.Marshal(attemptSnapshot)
+
 		// 3. Create attempt
 		attemptID := relaycommon.GenerateAttemptID()
 		attempt := &model.BgResponseAttempt{
-			AttemptID:     attemptID,
-			ResponseID:    req.ResponseID,
-			AttemptNo:     i + 1,
-			AdapterName:   adapter.Name(),
-			Status:        model.BgAttemptStatusRunning,
-			StatusVersion: 1,
-			StartedAt:     time.Now().Unix(),
+			AttemptID:           attemptID,
+			ResponseID:          req.ResponseID,
+			AttemptNo:           i + 1,
+			AdapterName:         adapter.Adapter.Name(),
+			Status:              model.BgAttemptStatusRunning,
+			StatusVersion:       1,
+			BillingSource:       attemptBillingSource,
+			BYOCredentialID:     adapter.BYOCredentialID,
+			FeeConfigJSON:       serializeFeeConfigJSON(adapter.FeeConfig),
+			PricingSnapshotJSON: string(attemptSnapshotJSON),
+			StartedAt:           time.Now().Unix(),
 		}
 		if err := attempt.Insert(); err != nil {
 			return fmt.Errorf("failed to create attempt record: %w", err)
@@ -115,11 +131,11 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 		activeAttemptID = attemptID
 
 		// 4. Start streaming via adapter
-		s, streamErr := adapter.Stream(req)
+		s, streamErr := adapter.Adapter.Stream(&attemptReq)
 
 		if streamErr != nil {
-			common.SysLog(fmt.Sprintf("fallback: %s failed pre-execution (stream err): %v", adapter.Name(), streamErr))
-			basegate.RecordFailure(adapter.Name())
+			common.SysLog(fmt.Sprintf("fallback: %s failed pre-execution (stream err): %v", adapter.Adapter.Name(), streamErr))
+			basegate.RecordFailure(adapter.Adapter.Name())
 			// Immediately fail attempt
 			event := ProviderEvent{
 				Status: "failed",
@@ -137,7 +153,8 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 		}
 
 		// Stream established successfully
-		basegate.RecordSuccess(adapter.Name())
+		basegate.RecordSuccess(adapter.Adapter.Name())
+		bestEffortAdoptWinningAdapterMetadata(bgResp.ID, adapter)
 		stream = s
 		finalErr = nil
 		break
@@ -164,6 +181,7 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 	// 6. Pump SSE loop
 	var actionCount int
 	var terminalError *relaycommon.AdapterError
+	var rawUsage interface{}
 
 	for event := range stream {
 		// Accumulate basic metrics
@@ -178,6 +196,13 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 			terminalError = &relaycommon.AdapterError{
 				Code:    code,
 				Message: msg,
+			}
+		}
+		if event.Type == relaycommon.SSEEventResponseSucceeded {
+			if data, ok := event.Data.(map[string]interface{}); ok {
+				if usage, uOK := data["raw_usage"]; uOK && usage != nil {
+					rawUsage = usage
+				}
 			}
 		}
 
@@ -217,10 +242,23 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 			"message": terminalError.Message,
 		}
 	} else {
-		// Push usage for streaming
-		terminalEvent.RawUsage = map[string]interface{}{
-			"actions": actionCount,
-			"duration_sec": float64(time.Now().Unix() - now),
+		// Prefer provider-reported usage (actual token counts from adapter)
+		if usageMap, ok := rawUsage.(map[string]interface{}); ok && usageMap != nil {
+			terminalEvent.RawUsage = usageMap
+		} else if rawUsage != nil {
+			// raw_usage is a struct (e.g. *ProviderUsage) — round-trip through JSON
+			if b, err := common.Marshal(rawUsage); err == nil {
+				var m map[string]interface{}
+				if err := common.Unmarshal(b, &m); err == nil {
+					terminalEvent.RawUsage = m
+				}
+			}
+		} else {
+			// Synthetic fallback
+			terminalEvent.RawUsage = map[string]interface{}{
+				"actions":      actionCount,
+				"duration_sec": float64(time.Now().Unix() - now),
+			}
 		}
 	}
 
@@ -233,4 +271,5 @@ func DispatchStream(req *relaycommon.CanonicalRequest, c *gin.Context) error {
 }
 
 type mockFlusher struct{}
+
 func (m *mockFlusher) Flush() {}

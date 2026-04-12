@@ -82,7 +82,7 @@ func registerMockAdapters() {
 	a7 := &mockAdapter{
 		name: "my-byo-adapter",
 		capabilities: []relaycommon.CapabilityBinding{
-			{CapabilityPattern: "test.cap.byo", Weight: 10},
+			{CapabilityPattern: "test.cap.byo", Weight: 10, Provider: "my-byo-provider"},
 		},
 	}
 	a8 := &mockAdapter{
@@ -136,6 +136,14 @@ func getAdapterNames(adapters []basegate.ProviderAdapter) []string {
 	return names
 }
 
+func getResolvedAdapterNames(adapters []basegate.ResolvedAdapter) []string {
+	var names []string
+	for _, a := range adapters {
+		names = append(names, a.Adapter.Name())
+	}
+	return names
+}
+
 func TestResolveRoute_FixedStrategy(t *testing.T) {
 	registerMockAdapters()
 	p := []model.BgRoutingPolicy{
@@ -146,7 +154,7 @@ func TestResolveRoute_FixedStrategy(t *testing.T) {
 	adapters, err := ResolveRoute(0, 0, 0, "test.cap.fixed")
 	require.NoError(t, err)
 	require.Len(t, adapters, 1)
-	assert.Equal(t, "ad-fixed-B", adapters[0].Name())
+	assert.Equal(t, "ad-fixed-B", adapters[0].Adapter.Name())
 
 	// Test case 3: non-existent adapter
 	pBad := []model.BgRoutingPolicy{
@@ -170,7 +178,7 @@ func TestResolveRoute_WeightedStrategy(t *testing.T) {
 	adapters, err := ResolveRoute(0, 0, 0, "test.cap.weight")
 	require.NoError(t, err)
 	require.Len(t, adapters, 1)
-	assert.Equal(t, "ad-weight-A", adapters[0].Name())
+	assert.Equal(t, "ad-weight-A", adapters[0].Adapter.Name())
 
 	// Both weights > 0, deterministic test using fixed seed
 	p2 := []model.BgRoutingPolicy{
@@ -183,14 +191,14 @@ func TestResolveRoute_WeightedStrategy(t *testing.T) {
 	require.Len(t, adapters2, 2)
 	// With seed=1, the weighted shuffle produces a deterministic order.
 	// Capture and assert exact order to verify determinism across runs.
-	firstRun := getAdapterNames(adapters2)
+	firstRun := getResolvedAdapterNames(adapters2)
 
 	// Run again with same seed — must produce identical order
 	fixedRand2 := rand.New(rand.NewSource(1))
 	adapters3, err3 := resolveRouteWithRand(fixedRand2, 0, 0, 0, "test.cap.weight")
 	require.NoError(t, err3)
 	require.Len(t, adapters3, 2)
-	secondRun := getAdapterNames(adapters3)
+	secondRun := getResolvedAdapterNames(adapters3)
 
 	assert.Equal(t, firstRun, secondRun, "same seed must produce identical adapter ordering")
 }
@@ -205,23 +213,26 @@ func TestResolveRoute_PrimaryBackupStrategy(t *testing.T) {
 	adapters, err := ResolveRoute(0, 0, 0, "test.cap.pb")
 	require.NoError(t, err)
 	require.Len(t, adapters, 2)
-	assert.Equal(t, "ad-pb-primary", adapters[0].Name())
-	assert.Equal(t, "ad-pb-fallback", adapters[1].Name())
+	assert.Equal(t, "ad-pb-primary", adapters[0].Adapter.Name())
+	assert.Equal(t, "ad-pb-fallback", adapters[1].Adapter.Name())
 }
 
 func TestResolveRoute_BYOFirstStrategy(t *testing.T) {
 	registerMockAdapters()
 	p := []model.BgRoutingPolicy{
-		{Scope: "platform", CapabilityPattern: "test.cap.byo", Strategy: "byo_first", RulesJSON: `{"byo_adapter_pattern": "*byo*"}`, Status: "active"},
+		{Scope: "platform", CapabilityPattern: "test.cap.byo", Strategy: "byo_first", RulesJSON: `{"provider": "my-byo-provider", "fallback_to_hosted": true}`, Status: "active"},
 	}
 	setupRoutingTest(p)
 
 	fixedRand := rand.New(rand.NewSource(1))
 	adapters, err := resolveRouteWithRand(fixedRand, 0, 0, 0, "test.cap.byo")
 	require.NoError(t, err)
-	require.Len(t, adapters, 2)
-	assert.Equal(t, "my-byo-adapter", adapters[0].Name())
-	assert.Equal(t, "default-adapter", adapters[1].Name())
+
+	// Without a stored BYO credential for org 0, the BYO adapter is skipped
+	// to prevent billing mismatch (billing as BYO while using hosted credentials).
+	// Only the hosted fallback adapter should be returned.
+	require.Len(t, adapters, 1)
+	assert.Equal(t, "hosted", adapters[0].BillingSource)
 }
 
 func TestResolveRoute_Scopes(t *testing.T) {
@@ -236,7 +247,7 @@ func TestResolveRoute_Scopes(t *testing.T) {
 	adapters, err := ResolveRoute(1, 10, 0, "test.cap.pb")
 	require.NoError(t, err)
 	require.Len(t, adapters, 1)
-	assert.Equal(t, "ad-pb-fallback", adapters[0].Name())
+	assert.Equal(t, "ad-pb-fallback", adapters[0].Adapter.Name())
 }
 
 func TestResolveRoute_NoPolicyFallback(t *testing.T) {
@@ -248,7 +259,7 @@ func TestResolveRoute_NoPolicyFallback(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, adapters, 2)
 	// Basegate's LookupAdapters uses completely random seeds, so we only verify elements exist
-	names := getAdapterNames(adapters)
+	names := getResolvedAdapterNames(adapters)
 	assert.Contains(t, names, "ad-fixed-A")
 	assert.Contains(t, names, "ad-fixed-B")
 }
@@ -263,14 +274,14 @@ func TestResolveRoute_LegacyWrapperMatch(t *testing.T) {
 	adapters, err := ResolveRoute(0, 0, 0, "test.cap.legacy")
 	require.NoError(t, err)
 	require.Len(t, adapters, 1)
-	assert.Equal(t, "legacy_task_suno", adapters[0].Name())
+	assert.Equal(t, "legacy_task_suno", adapters[0].Adapter.Name())
 }
 
 func TestResolveRoute_BYOFirstNoBYOMatch(t *testing.T) {
 	registerMockAdapters()
 	// Pattern that won't match any adapter name → should fallback to LookupAdapters
 	p := []model.BgRoutingPolicy{
-		{Scope: "platform", CapabilityPattern: "test.cap.byo", Strategy: "byo_first", RulesJSON: `{"byo_adapter_pattern": "nonexistent-*"}`, Status: "active"},
+		{Scope: "platform", CapabilityPattern: "test.cap.byo", Strategy: "byo_first", RulesJSON: `{"provider": "nonexistent-provider", "fallback_to_hosted": true}`, Status: "active"},
 	}
 	setupRoutingTest(p)
 
@@ -278,7 +289,7 @@ func TestResolveRoute_BYOFirstNoBYOMatch(t *testing.T) {
 	adapters, err := resolveRouteWithRand(fixedRand, 0, 0, 0, "test.cap.byo")
 	require.NoError(t, err)
 	// No BYO match → all adapters come from LookupAdapters fallback
-	names := getAdapterNames(adapters)
+	names := getResolvedAdapterNames(adapters)
 	assert.Contains(t, names, "my-byo-adapter")
 	assert.Contains(t, names, "default-adapter")
 }

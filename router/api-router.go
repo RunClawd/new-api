@@ -297,6 +297,16 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.POST("/batch/keys", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKeysBatch)
 		}
 
+		byoCredentialsRoute := apiRouter.Group("/byo_credentials")
+		byoCredentialsRoute.Use(middleware.UserAuth())
+		{
+			byoCredentialsRoute.GET("/", controller.ListBYOCredentials)
+			byoCredentialsRoute.POST("/", controller.CreateBYOCredential)
+			byoCredentialsRoute.GET("/:id", controller.GetBYOCredential)
+			byoCredentialsRoute.PUT("/:id", controller.UpdateBYOCredential)
+			byoCredentialsRoute.DELETE("/:id", controller.DeleteBYOCredential)
+		}
+
 		usageRoute := apiRouter.Group("/usage")
 		usageRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{

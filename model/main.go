@@ -292,6 +292,7 @@ func migrateDB() error {
 		// BaseGate tables
 		{"BgResponse", &BgResponse{}},
 		{"BgResponseAttempt", &BgResponseAttempt{}},
+		{"BgBYOCredential", &BgBYOCredential{}},
 		{"BgUsageRecord", &BgUsageRecord{}},
 		{"BgBillingRecord", &BgBillingRecord{}},
 		{"BgLedgerEntry", &BgLedgerEntry{}},

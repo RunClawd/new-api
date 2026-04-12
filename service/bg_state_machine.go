@@ -249,24 +249,42 @@ func ApplyProviderEvent(responseID, attemptID string, event ProviderEvent) error
 		if resp.Status == model.BgResponseStatusSucceeded && event.RawUsage != nil {
 			rawUsage := eventRawUsageToProviderUsage(event.RawUsage)
 
-			// Resolve pricing: prefer the snapshot frozen at invocation time.
-			// Fallback to live LookupPricing for in-flight responses created before this
-			// feature was deployed (PricingSnapshotJSON will be empty).
+			// Resolve pricing: prefer the snapshot frozen at invocation time for the specific attempt.
 			var pricing *relaycommon.PricingSnapshot
-			if resp.PricingSnapshotJSON != "" {
+			var feeConfig *relaycommon.BYOFeeConfig
+			
+			billingSource := attempt.BillingSource
+			if billingSource == "" {
+				billingSource = resp.GetBillingSource() // Support legacy in-flight records
+			}
+
+			if attempt.PricingSnapshotJSON != "" {
+				var snap relaycommon.PricingSnapshot
+				if err := common.UnmarshalJsonStr(attempt.PricingSnapshotJSON, &snap); err == nil {
+					pricing = &snap
+				}
+			} else if resp.PricingSnapshotJSON != "" {
 				var snap relaycommon.PricingSnapshot
 				if err := common.UnmarshalJsonStr(resp.PricingSnapshotJSON, &snap); err == nil {
 					pricing = &snap
 				}
 			}
+
+			if attempt.FeeConfigJSON != "" {
+				var fc relaycommon.BYOFeeConfig
+				if err := common.UnmarshalJsonStr(attempt.FeeConfigJSON, &fc); err == nil {
+					feeConfig = &fc
+				}
+			}
+
 			if pricing == nil {
-				pricing = LookupPricing(resp.Model, resp.GetBillingSource())
+				pricing = LookupPricing(resp.Model, billingSource)
 			}
 
 			// Resolve provider name from the active attempt's adapter
 			provider := attempt.AdapterName
 
-			quotaUsed, billErr := FinalizeBilling(responseID, resp.OrgID, resp.ProjectID, resp.Model, provider, rawUsage, pricing, resp.GetBillingSource(), nil)
+			quotaUsed, billErr := FinalizeBilling(responseID, resp.OrgID, resp.ProjectID, resp.Model, provider, rawUsage, pricing, billingSource, feeConfig)
 			if billErr != nil {
 				common.SysError(fmt.Sprintf("billing failed for %s: %v", responseID, billErr))
 				billingStatus = "failed"
