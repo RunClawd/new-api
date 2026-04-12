@@ -385,18 +385,21 @@ func LookupPricing(modelName string, billingSource string) *relaycommon.PricingS
 		cacheCreationRatio = cwr
 	}
 
+	// Claude 1h cache write costs more than 5m/base.
+	// Legacy formula: 1h_ratio = base_ratio × (6 / 3.75) = base_ratio × 1.6
+	// See relay/helper/price.go:claudeCacheCreation1hMultiplier
+	const cacheCreation1hMultiplier = 6.0 / 3.75
+
 	return &relaycommon.PricingSnapshot{
-		PricingMode:        "metered",
-		BillableUnit:       "token",
-		UnitPrice:          perTokenPrice,
-		Currency:           "usd",
-		CompletionRatio:    completionRatio,
-		CacheRatio:         cacheRatio,
-		CacheCreationRatio: cacheCreationRatio,
-		// 5m/1h ratios: same as base cache creation ratio by default.
-		// Claude-specific split ratios are only distinguished if admin configures them.
+		PricingMode:          "metered",
+		BillableUnit:         "token",
+		UnitPrice:            perTokenPrice,
+		Currency:             "usd",
+		CompletionRatio:      completionRatio,
+		CacheRatio:           cacheRatio,
+		CacheCreationRatio:   cacheCreationRatio,
 		CacheCreation5mRatio: cacheCreationRatio,
-		CacheCreation1hRatio: cacheCreationRatio,
+		CacheCreation1hRatio: cacheCreationRatio * cacheCreation1hMultiplier,
 	}
 }
 

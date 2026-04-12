@@ -209,11 +209,9 @@ func (a *AnthropicLLMAdapter) Invoke(req *relaycommon.CanonicalRequest) (*relayc
 		usage.CacheCreationTokens = u.GetCacheCreationTotalTokens()
 		usage.CacheCreationTokens5m = u.GetCacheCreation5mTokens()
 		usage.CacheCreationTokens1h = u.GetCacheCreation1hTokens()
-		// InputTokens = pure non-cache input
-		usage.InputTokens = u.InputTokens - usage.CachedTokens - usage.CacheCreationTokens
-		if usage.InputTokens < 0 {
-			usage.InputTokens = 0
-		}
+		// Claude's input_tokens already excludes cache tokens (cache_read + cache_creation
+		// are reported separately), so InputTokens = input_tokens directly, no subtraction.
+		usage.InputTokens = u.InputTokens
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	}
 
@@ -308,10 +306,8 @@ func (a *AnthropicLLMAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan 
 					accumulatedUsage.CacheCreationTokens = u.GetCacheCreationTotalTokens()
 					accumulatedUsage.CacheCreationTokens5m = u.GetCacheCreation5mTokens()
 					accumulatedUsage.CacheCreationTokens1h = u.GetCacheCreation1hTokens()
-					accumulatedUsage.InputTokens = u.InputTokens - accumulatedUsage.CachedTokens - accumulatedUsage.CacheCreationTokens
-					if accumulatedUsage.InputTokens < 0 {
-						accumulatedUsage.InputTokens = 0
-					}
+					// Claude's input_tokens already excludes cache — no subtraction needed.
+					accumulatedUsage.InputTokens = u.InputTokens
 					accumulatedUsage.TotalTokens = accumulatedUsage.PromptTokens + accumulatedUsage.CompletionTokens
 				}
 			case "content_block_start":
@@ -334,11 +330,8 @@ func (a *AnthropicLLMAdapter) Stream(req *relaycommon.CanonicalRequest) (<-chan 
 						accumulatedUsage.CacheCreationTokens5m = u.GetCacheCreation5mTokens()
 						accumulatedUsage.CacheCreationTokens1h = u.GetCacheCreation1hTokens()
 					}
-					// Recalculate InputTokens
-					accumulatedUsage.InputTokens = accumulatedUsage.PromptTokens - accumulatedUsage.CachedTokens - accumulatedUsage.CacheCreationTokens
-					if accumulatedUsage.InputTokens < 0 {
-						accumulatedUsage.InputTokens = 0
-					}
+					// Claude's input_tokens already excludes cache — keep pure input_tokens semantics.
+					accumulatedUsage.InputTokens = accumulatedUsage.PromptTokens
 					accumulatedUsage.TotalTokens = accumulatedUsage.PromptTokens + accumulatedUsage.CompletionTokens
 				}
 			case "content_block_delta":

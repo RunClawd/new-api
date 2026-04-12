@@ -378,12 +378,24 @@ go test ./service/... -v -run "TestApplyProviderEvent" -count=1
 # Adapter tests (mock server)
 go test ./relay/basegate/adapters/... -v -count=1
 
+# Native provider smoke tests (requires .env.local with OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY)
+go test ./relay/basegate/adapters -run 'TestSmoke_(OpenAI_Invoke|Anthropic_Invoke|Anthropic_Stream|Gemini_Invoke|Gemini_Stream)' -v -count=1
+
+# Native cache smoke tests
+go test ./relay/basegate/adapters -run 'TestSmoke_(OpenAI_PromptCache_Invoke|Anthropic_PromptCache_Invoke|Gemini_ExplicitCache_Invoke)' -v -count=1
+
 # E2B integration test (requires E2B_API_KEY env var)
 E2B_API_KEY=... go test ./relay/basegate/adapters/... -run TestE2BIntegration -v -count=1
 
 # Race detection
 go test -race ./model/... ./service/... -count=1
 ```
+
+Notes:
+
+- Native smoke tests read credentials from `.env.local`.
+- Native cache smoke tests perform real upstream requests and may consume paid quota.
+- The cache smoke suite validates provider-side cache usage fields and semantics only; it does not replace full BaseGate end-to-end billing verification.
 
 ## Development Timeline
 

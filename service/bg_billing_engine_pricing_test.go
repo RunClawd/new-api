@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
 // --- calculateDifferentiatedAmount tests ---
@@ -326,5 +327,36 @@ func TestCalculateDifferentiatedAmount_NonTokenUsage(t *testing.T) {
 	expected := 120.5 * 0.001
 	if math.Abs(amount-expected) > 1e-10 {
 		t.Errorf("expected %.10f, got %.10f", expected, amount)
+	}
+}
+
+func TestLookupPricing_CacheCreation1hRatio_NotEqualToBase(t *testing.T) {
+	// LookupPricing must apply the 1h multiplier (6/3.75 = 1.6) to the base
+	// cache creation ratio, not just copy it. This aligns with the legacy formula
+	// in relay/helper/price.go:claudeCacheCreation1hMultiplier.
+	ratio_setting.InitRatioSettings()
+	snap := LookupPricing("claude-sonnet-4-5-20250929", "hosted")
+	if snap == nil {
+		t.Fatal("expected non-nil snapshot")
+	}
+
+	// Claude base cache creation ratio = 1.25 (from ratio_setting defaults)
+	// 5m ratio should equal base: 1.25
+	// 1h ratio should equal base × 1.6 = 2.0
+	const expected1h = 1.25 * (6.0 / 3.75) // = 2.0
+
+	if snap.CacheCreation5mRatio != snap.CacheCreationRatio {
+		t.Errorf("5m ratio should equal base creation ratio: got %f, want %f",
+			snap.CacheCreation5mRatio, snap.CacheCreationRatio)
+	}
+
+	if math.Abs(snap.CacheCreation1hRatio-expected1h) > 1e-10 {
+		t.Errorf("1h ratio should be base × 1.6: got %f, want %f",
+			snap.CacheCreation1hRatio, expected1h)
+	}
+
+	if snap.CacheCreation1hRatio == snap.CacheCreationRatio {
+		t.Errorf("1h ratio must NOT equal base ratio (was: %f); it should be %f",
+			snap.CacheCreation1hRatio, expected1h)
 	}
 }

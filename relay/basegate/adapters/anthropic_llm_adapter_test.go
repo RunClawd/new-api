@@ -141,6 +141,96 @@ func TestAnthropicLLMAdapter_Stream_ThinkingNotMixedIntoText(t *testing.T) {
 	assert.Equal(t, "Visible answer", output[1].Content)
 }
 
+// TestAnthropicLLMAdapter_CacheUsage_NoDoubleSubtraction verifies that Claude's
+// input_tokens (which already excludes cache) is NOT reduced again by the adapter.
+// Regression test for: Claude input_tokens double-subtraction bug.
+func TestAnthropicLLMAdapter_CacheUsage_NoDoubleSubtraction(t *testing.T) {
+	adapter := NewAnthropicLLMAdapter(1, "test-claude", "test-key", "https://example.test")
+	adapter.SetTransport(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		// Claude's input_tokens (800) already excludes cache_read (200) and cache_creation (100).
+		// The real total prompt = 800 + 200 + 100 = 1100.
+		return newMockHTTPResponse(http.StatusOK, `{
+			"type": "message",
+			"content": [{"type": "text", "text": "ok"}],
+			"usage": {
+				"input_tokens": 800,
+				"output_tokens": 300,
+				"cache_read_input_tokens": 200,
+				"cache_creation_input_tokens": 100
+			}
+		}`, map[string]string{"Content-Type": "application/json"}), nil
+	}))
+
+	req := &common.CanonicalRequest{
+		Model: "bg.llm.chat.standard",
+		Input: map[string]interface{}{
+			"messages": []interface{}{
+				map[string]interface{}{"role": "user", "content": "test"},
+			},
+		},
+	}
+
+	result, err := adapter.Invoke(req)
+	assert.NoError(t, err)
+	assert.Equal(t, "succeeded", result.Status)
+
+	u := result.RawUsage
+	// InputTokens must equal Claude's input_tokens (800), NOT 800-200-100=500
+	assert.Equal(t, 800, u.InputTokens, "InputTokens should equal Claude's input_tokens directly, no subtraction")
+	assert.Equal(t, 800, u.PromptTokens, "PromptTokens = Claude input_tokens")
+	assert.Equal(t, 300, u.CompletionTokens)
+	assert.Equal(t, 200, u.CachedTokens)
+	assert.Equal(t, 100, u.CacheCreationTokens)
+	assert.Equal(t, 1100, u.TotalTokens)
+}
+
+func TestAnthropicLLMAdapter_Stream_CacheUsage_NoDoubleSubtraction(t *testing.T) {
+	streamBody := "" +
+		"event: message_start\n" +
+		"data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":800,\"output_tokens\":0,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":100}}}\n\n" +
+		"event: content_block_start\n" +
+		"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n" +
+		"event: content_block_delta\n" +
+		"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n" +
+		"event: message_delta\n" +
+		"data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":300,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":100}}\n\n" +
+		"event: message_stop\n" +
+		"data: {\"type\":\"message_stop\"}\n\n"
+
+	adapter := NewAnthropicLLMAdapter(1, "test-claude", "test-key", "https://example.test")
+	adapter.SetTransport(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return newMockHTTPResponse(http.StatusOK, streamBody, map[string]string{"Content-Type": "text/event-stream"}), nil
+	}))
+
+	req := &common.CanonicalRequest{
+		Model: "bg.llm.chat.standard",
+		Input: map[string]interface{}{
+			"messages": []interface{}{
+				map[string]interface{}{"role": "user", "content": "test"},
+			},
+		},
+	}
+
+	ch, err := adapter.Stream(req)
+	assert.NoError(t, err)
+
+	var succeeded common.SSEEvent
+	for event := range ch {
+		if event.Type == common.SSEEventResponseSucceeded {
+			succeeded = event
+		}
+	}
+
+	dataMap := succeeded.Data.(map[string]interface{})
+	u := dataMap["raw_usage"].(*common.ProviderUsage)
+	assert.Equal(t, 800, u.InputTokens, "stream InputTokens should equal Claude input_tokens directly")
+	assert.Equal(t, 800, u.PromptTokens)
+	assert.Equal(t, 300, u.CompletionTokens)
+	assert.Equal(t, 200, u.CachedTokens)
+	assert.Equal(t, 100, u.CacheCreationTokens)
+	assert.Equal(t, 1100, u.TotalTokens)
+}
+
 func TestAnthropicLLMAdapter_CredentialOverride(t *testing.T) {
 	adapter := NewAnthropicLLMAdapter(1, "test-claude", "channel-key", "https://example.test")
 	adapter.SetTransport(roundTripFunc(func(r *http.Request) (*http.Response, error) {
