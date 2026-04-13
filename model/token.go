@@ -28,6 +28,7 @@ type Token struct {
 	UsedQuota          int            `json:"used_quota" gorm:"default:0"` // used quota
 	Group              string         `json:"group" gorm:"default:''"`
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
+	BgProjectID        int64          `json:"bg_project_id" gorm:"index;default:0"` // 0 = unbound; immutable after creation
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
 
@@ -83,6 +84,22 @@ func GetAllUserTokens(userId int, startIdx int, num int) ([]*Token, error) {
 	var err error
 	err = DB.Where("user_id = ?", userId).Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
 	return tokens, err
+}
+
+// GetUserTokensByBgProjectID returns paginated tokens for a user filtered by bg_project_id.
+// Used by DevListBgApiKeys to support ?project_id= query parameter with correct pagination.
+func GetUserTokensByBgProjectID(userId int, bgProjectID int64, startIdx, num int) ([]*Token, error) {
+	var tokens []*Token
+	err := DB.Where("user_id = ? AND bg_project_id = ?", userId, bgProjectID).
+		Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
+	return tokens, err
+}
+
+// CountUserTokensByBgProjectID counts tokens for a user filtered by bg_project_id.
+func CountUserTokensByBgProjectID(userId int, bgProjectID int64) (int64, error) {
+	var count int64
+	err := DB.Model(&Token{}).Where("user_id = ? AND bg_project_id = ?", userId, bgProjectID).Count(&count).Error
+	return count, err
 }
 
 // sanitizeLikePattern 校验并清洗用户输入的 LIKE 搜索模式。

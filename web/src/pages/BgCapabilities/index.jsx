@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Table, Tag, Typography, Space, Input, Select, Button } from '@douyinfe/semi-ui';
+import { Card, Table, Tag, Typography, Space, Input, Select, Button, Descriptions } from '@douyinfe/semi-ui';
 import { IconTick, IconClose, IconSearch, IconRefresh } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
-import { API, showError } from '../../helpers';
+import { API, showError, isAdmin } from '../../helpers';
 
-const { Title, Text } = Typography;
+const { Title, Text, Paragraph } = Typography;
 
 const DOMAIN_COLORS = {
   llm: 'blue',
@@ -28,6 +28,7 @@ export default function BgCapabilitiesPage() {
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [expandedRowKeys, setExpandedRowKeys] = useState([]);
 
   const filteredRows = React.useMemo(() => {
     return allRows.filter((r) => {
@@ -41,9 +42,15 @@ export default function BgCapabilitiesPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await API.get(`/api/bg/capabilities?p=1&page_size=1000`);
+      // Admin users see all capabilities (including inactive); dev users see active-only with pricing.
+      const url = isAdmin()
+        ? '/api/bg/capabilities?p=1&page_size=1000'
+        : '/api/bg/dev/capabilities';
+      const res = await API.get(url);
       if (res.data?.success) {
-        setAllRows(res.data.data.items ?? []);
+        // Admin response is paginated (items), dev response is a flat array
+        const data = res.data.data;
+        setAllRows(Array.isArray(data) ? data : (data.items ?? []));
       } else {
         showError(res.data?.message || t('获取失败'));
       }
@@ -57,6 +64,104 @@ export default function BgCapabilitiesPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Expandable row render: detail panel with schema preview + example request
+  const expandedRowRender = (record) => {
+    const modes = Array.isArray(record.supported_modes)
+      ? record.supported_modes
+      : (record.supported_modes ? String(record.supported_modes).split(',').map(s => s.trim()) : []);
+
+    const examplePayload = JSON.stringify({
+      model: record.capability_name,
+      input: { messages: [{ role: 'user', content: 'Hello!' }] },
+      execution_options: { mode: modes.includes('stream') ? 'stream' : (modes[0] || 'sync') },
+    }, null, 2);
+
+    return (
+      <div style={{ padding: '12px 24px', background: 'var(--semi-color-fill-0)', borderRadius: 8 }}>
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+          {/* Left: capability info */}
+          <div style={{ flex: 1, minWidth: 300 }}>
+            <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>{t('能力详情')}</Text>
+            <Descriptions row size='small'>
+              <Descriptions.Item itemKey={t('能力名')}><Text code>{record.capability_name}</Text></Descriptions.Item>
+              <Descriptions.Item itemKey={t('领域')}>{record.domain}</Descriptions.Item>
+              <Descriptions.Item itemKey={t('动作')}>{record.action}</Descriptions.Item>
+              <Descriptions.Item itemKey={t('级别')}>{record.tier}</Descriptions.Item>
+              <Descriptions.Item itemKey={t('计费单位')}>{record.billable_unit}</Descriptions.Item>
+              <Descriptions.Item itemKey={t('可取消')}>{record.supports_cancel ? t('是') : t('否')}</Descriptions.Item>
+              <Descriptions.Item itemKey={t('支持模式')}>
+                <Space>
+                  {modes.map(m => <Tag key={m} color={MODE_COLORS[m] ?? 'grey'} size='small'>{m}</Tag>)}
+                </Space>
+              </Descriptions.Item>
+              <Descriptions.Item itemKey={t('定价模式')}>
+                {record.pricing_mode === 'ratio' ? t('按量') : record.pricing_mode === 'price' ? t('按次') : t('未配置')}
+              </Descriptions.Item>
+              <Descriptions.Item itemKey={t('单价')}>
+                {record.unit_price > 0
+                  ? (record.pricing_mode === 'price' ? `$${Number(record.unit_price).toFixed(4)}/req` : `$${Number(record.unit_price * 1000000).toFixed(2)}/1M`)
+                  : '—'
+                }
+              </Descriptions.Item>
+            </Descriptions>
+            {record.description && (
+              <div style={{ marginTop: 12 }}>
+                <Text type='tertiary' size='small' style={{ display: 'block', marginBottom: 4 }}>{t('描述')}</Text>
+                <Paragraph style={{ margin: 0 }}>{record.description}</Paragraph>
+              </div>
+            )}
+            {/* Phase 15 schema preview placeholder */}
+            {(record.input_schema_json || record.output_schema_json) && (
+              <div style={{ marginTop: 12 }}>
+                <Text type='tertiary' size='small' style={{ display: 'block', marginBottom: 4 }}>{t('Schema 预览')}</Text>
+                {record.input_schema_json && (
+                  <div style={{ marginBottom: 8 }}>
+                    <Text size='small' strong>{t('输入 Schema')}</Text>
+                    <pre style={{ margin: '4px 0', padding: 8, background: 'var(--semi-color-fill-1)', borderRadius: 6, fontSize: 11, maxHeight: 200, overflow: 'auto' }}>
+                      {record.input_schema_json}
+                    </pre>
+                  </div>
+                )}
+                {record.output_schema_json && (
+                  <div>
+                    <Text size='small' strong>{t('输出 Schema')}</Text>
+                    <pre style={{ margin: '4px 0', padding: 8, background: 'var(--semi-color-fill-1)', borderRadius: 6, fontSize: 11, maxHeight: 200, overflow: 'auto' }}>
+                      {record.output_schema_json}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Right: example request */}
+          <div style={{ flex: 1, minWidth: 300 }}>
+            <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>{t('示例请求')}</Text>
+            <div style={{ position: 'relative' }}>
+              <pre style={{
+                margin: 0,
+                padding: 12,
+                background: 'var(--semi-color-fill-1)',
+                borderRadius: 8,
+                fontSize: 12,
+                fontFamily: 'monospace',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+                maxHeight: 300,
+                overflow: 'auto',
+              }}>
+{`curl -X POST /v1/bg/responses \\
+  -H "Authorization: Bearer sk-xxx" \\
+  -H "Content-Type: application/json" \\
+  -d '${examplePayload}'`}
+              </pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const columns = [
     {
@@ -185,6 +290,9 @@ export default function BgCapabilitiesPage() {
           dataSource={filteredRows.slice((page - 1) * pageSize, page * pageSize)}
           loading={loading}
           rowKey='capability_name'
+          expandedRowKeys={expandedRowKeys}
+          onExpandedRowsChange={(keys) => setExpandedRowKeys(keys)}
+          expandedRowRender={expandedRowRender}
           pagination={{
             currentPage: page,
             pageSize,

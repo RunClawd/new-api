@@ -70,3 +70,22 @@ func DeleteBgProject(projectID string) error {
 	}
 	return nil
 }
+
+// GetBgProjectByID looks up a project by its internal auto-increment PK.
+// Used by resolveProjectID for the Atoi backward-compat fallback path.
+func GetBgProjectByID(id int64) (*BgProject, error) {
+	var project BgProject
+	err := DB.Where("id = ?", id).First(&project).Error
+	if err != nil {
+		return nil, err
+	}
+	return &project, nil
+}
+
+// CountBgProjectsByOrgID counts projects for a given org.
+// Used by DevCreateBgProject to enforce per-user project creation limits.
+func CountBgProjectsByOrgID(orgID int) (int64, error) {
+	var count int64
+	err := DB.Model(&BgProject{}).Where("org_id = ?", orgID).Count(&count).Error
+	return count, err
+}

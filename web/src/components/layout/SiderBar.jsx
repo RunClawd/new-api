@@ -60,6 +60,12 @@ const routerMap = {
   bgAudit: '/console/bg-audit',
   bgWebhooks: '/console/bg-webhooks',
   bgPlayground: '/console/bg-playground',
+  bgDevDashboard: '/console/bg-dev-dashboard',
+  bgApiKeys: '/console/bg-apikeys',
+  bgDevProjects: '/console/bg-dev-projects',
+  bgCapabilitiesDev: '/console/bg-capabilities',
+  bgPlaygroundDev: '/console/bg-playground',
+  bgPolicies: '/console/bg-policies',
 };
 
 const SiderBar = ({ onNavigate = () => {} }) => {
@@ -267,6 +273,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         to: '/bg-playground',
         className: isAdmin() ? '' : 'tableHiddle',
       },
+      {
+        text: t('BaseGate 策略'),
+        itemKey: 'bgPolicies',
+        to: '/bg-policies',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
     ];
 
     // 根据配置过滤项目
@@ -277,6 +289,39 @@ const SiderBar = ({ onNavigate = () => {} }) => {
 
     return filteredItems;
   }, [isAdmin(), isRoot(), t, isModuleVisible]);
+
+  // BaseGate developer items — visible to ALL authenticated users (not just admin)
+  const bgDevItems = useMemo(() => {
+    const items = [
+      {
+        text: t('开发者总览'),
+        itemKey: 'bgDevDashboard',
+        to: '/bg-dev-dashboard',
+      },
+      {
+        text: t('API 密钥'),
+        itemKey: 'bgApiKeys',
+        to: '/bg-apikeys',
+      },
+      {
+        text: t('我的项目'),
+        itemKey: 'bgDevProjects',
+        to: '/bg-dev-projects',
+      },
+      {
+        text: t('能力目录'),
+        itemKey: 'bgCapabilitiesDev',
+        to: '/bg-capabilities',
+      },
+      {
+        text: t('调试台'),
+        itemKey: 'bgPlaygroundDev',
+        to: '/bg-playground',
+      },
+    ];
+
+    return items.filter((item) => isModuleVisible('bgDev', item.itemKey));
+  }, [t, isModuleVisible]);
 
   const chatMenuItems = useMemo(() => {
     const items = [
@@ -549,6 +594,19 @@ const SiderBar = ({ onNavigate = () => {} }) => {
                   <div className='sidebar-group-label'>{t('个人中心')}</div>
                 )}
                 {financeItems.map((item) => renderNavItem(item))}
+              </div>
+            </>
+          )}
+
+          {/* BaseGate 开发者区域 — 所有登录用户可见 */}
+          {hasSectionVisibleModules('bgDev') && (
+            <>
+              <Divider className='sidebar-divider' />
+              <div>
+                {!collapsed && (
+                  <div className='sidebar-group-label'>{t('BaseGate 开发者')}</div>
+                )}
+                {bgDevItems.map((item) => renderNavItem(item))}
               </div>
             </>
           )}

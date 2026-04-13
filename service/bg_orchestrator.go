@@ -388,19 +388,27 @@ func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, er
 }
 
 // GetResponse retrieves a response by its public ID.
-func GetResponse(responseID string) (*dto.BaseGateResponse, error) {
+// orgID enforces tenant isolation — pass 0 to skip (admin context).
+func GetResponse(responseID string, orgID int) (*dto.BaseGateResponse, error) {
 	bgResp, err := model.GetBgResponseByResponseID(responseID)
 	if err != nil {
 		return nil, fmt.Errorf("response not found: %w", err)
+	}
+	if orgID > 0 && bgResp.OrgID != orgID {
+		return nil, fmt.Errorf("response not found: %s", responseID)
 	}
 	return buildResponseFromDB(bgResp)
 }
 
 // CancelResponse requests cancellation of an in-progress response.
-func CancelResponse(responseID string) (*dto.BaseGateResponse, error) {
+// orgID enforces tenant isolation — pass 0 to skip (admin context).
+func CancelResponse(responseID string, orgID int) (*dto.BaseGateResponse, error) {
 	bgResp, err := model.GetBgResponseByResponseID(responseID)
 	if err != nil {
 		return nil, fmt.Errorf("response not found: %w", err)
+	}
+	if orgID > 0 && bgResp.OrgID != orgID {
+		return nil, fmt.Errorf("response not found: %s", responseID)
 	}
 
 	if bgResp.Status.IsTerminal() {

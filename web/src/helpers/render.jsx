@@ -177,7 +177,18 @@ export function getLucideIcon(key, selected = false) {
     case 'bgWebhooks':
       return <Webhook {...commonProps} color={iconColor} />;
     case 'bgPlayground':
+    case 'bgPlaygroundDev':
       return <Beaker {...commonProps} color={iconColor} />;
+    case 'bgDevDashboard':
+      return <LayoutDashboard {...commonProps} color={iconColor} />;
+    case 'bgApiKeys':
+      return <Key {...commonProps} color={iconColor} />;
+    case 'bgDevProjects':
+      return <Briefcase {...commonProps} color={iconColor} />;
+    case 'bgCapabilitiesDev':
+      return <Cpu {...commonProps} color={iconColor} />;
+    case 'bgPolicies':
+      return <ShieldCheck {...commonProps} color={iconColor} />;
     default:
       return <CircleUser {...commonProps} color={iconColor} />;
   }

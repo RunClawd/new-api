@@ -60,6 +60,10 @@ import BgDashboardPage from './pages/BgDashboard';
 import BgAuditPage from './pages/BgAudit';
 import BgWebhooksPage from './pages/BgWebhooks';
 import BgPlaygroundPage from './pages/BgPlayground';
+import BgDevDashboardPage from './pages/BgDevDashboard';
+import BgApiKeysPage from './pages/BgApiKeys';
+import BgPoliciesPage from './pages/BgPolicies';
+import BgDevProjectsPage from './pages/BgDevProjects';
 
 const Home = lazy(() => import('./pages/Home'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -407,9 +411,9 @@ function App() {
         <Route
           path='/console/bg-capabilities'
           element={
-            <AdminRoute>
+            <PrivateRoute>
               <BgCapabilitiesPage />
-            </AdminRoute>
+            </PrivateRoute>
           }
         />
         <Route
@@ -471,8 +475,42 @@ function App() {
         <Route
           path='/console/bg-playground'
           element={
-            <AdminRoute>
+            <PrivateRoute>
               <BgPlaygroundPage />
+            </PrivateRoute>
+          }
+        />
+        {/* Developer-scoped BaseGate pages (non-admin) */}
+        <Route
+          path='/console/bg-dev-dashboard'
+          element={
+            <PrivateRoute>
+              <BgDevDashboardPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path='/console/bg-apikeys'
+          element={
+            <PrivateRoute>
+              <BgApiKeysPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path='/console/bg-dev-projects'
+          element={
+            <PrivateRoute>
+              <BgDevProjectsPage />
+            </PrivateRoute>
+          }
+        />
+        {/* Admin-only BaseGate policy management */}
+        <Route
+          path='/console/bg-policies'
+          element={
+            <AdminRoute>
+              <BgPoliciesPage />
             </AdminRoute>
           }
         />

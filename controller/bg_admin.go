@@ -108,7 +108,7 @@ func AdminCancelBgResponse(c *gin.Context) {
 		return
 	}
 
-	resp, err := service.CancelResponse(responseID)
+	resp, err := service.CancelResponse(responseID, 0) // admin: skip org check
 	if err != nil {
 		common.ApiErrorMsg(c, "Failed to cancel response: "+err.Error())
 		return
@@ -174,20 +174,13 @@ func AdminCloseBgSession(c *gin.Context) {
 		return
 	}
 
-	_, err := service.CloseSession(sessionID)
+	_, err := service.CloseSession(sessionID, 0) // admin: skip org check
 	if err != nil {
 		common.ApiErrorMsg(c, "Failed to close session: "+err.Error())
 		return
 	}
 
 	common.ApiSuccess(c, "ok")
-}
-
-// CapabilityWithPricing extends BgCapability with live pricing info from ratio_setting.
-type CapabilityWithPricing struct {
-	model.BgCapability
-	PricingMode string  `json:"pricing_mode"` // "ratio" | "price" | "none"
-	UnitPrice   float64 `json:"unit_price"`
 }
 
 // AdminListBgCapabilities handles GET /api/bg/capabilities
@@ -203,22 +196,7 @@ func AdminListBgCapabilities(c *gin.Context) {
 		return
 	}
 
-	// Enrich with live pricing
-	enriched := make([]CapabilityWithPricing, len(capabilities))
-	for i, cap := range capabilities {
-		enriched[i].BgCapability = *cap
-		pricing := service.LookupPricing(cap.CapabilityName, "hosted")
-		if pricing != nil && pricing.UnitPrice > 0 {
-			if pricing.PricingMode == "per_call" {
-				enriched[i].PricingMode = "price"
-			} else {
-				enriched[i].PricingMode = "ratio"
-			}
-			enriched[i].UnitPrice = pricing.UnitPrice
-		} else {
-			enriched[i].PricingMode = "none"
-		}
-	}
+	enriched := enrichCapabilitiesWithPricing(capabilities)
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(enriched)

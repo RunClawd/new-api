@@ -3,7 +3,6 @@ package controller
 import (
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -36,7 +35,16 @@ func PostResponses(c *gin.Context) {
 		return
 	}
 
-	projectID, _ := strconv.Atoi(c.GetHeader("X-Project-Id"))
+	projectID, projErr := resolveProjectID(c)
+	if projErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"code":    "invalid_project",
+				"message": projErr.Error(),
+			},
+		})
+		return
+	}
 
 	// Build canonical request
 	canonicalReq := &relaycommon.CanonicalRequest{
@@ -141,7 +149,8 @@ func GetResponseByID(c *gin.Context) {
 		return
 	}
 
-	resp, err := service.GetResponse(responseID)
+	orgID := c.GetInt("id")
+	resp, err := service.GetResponse(responseID, orgID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error": gin.H{
@@ -168,7 +177,8 @@ func CancelResponseByID(c *gin.Context) {
 		return
 	}
 
-	resp, err := service.CancelResponse(responseID)
+	orgID := c.GetInt("id")
+	resp, err := service.CancelResponse(responseID, orgID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error": gin.H{

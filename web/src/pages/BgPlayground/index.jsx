@@ -1,6 +1,7 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Card, Typography, Button, Select, Input, TextArea, Space, Tag, Toast } from '@douyinfe/semi-ui';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Card, Typography, Button, Select, Input, TextArea, Space, Tag, Toast, Tabs, TabPane } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
+import { IconCopy } from '@douyinfe/semi-icons';
 import { API, showError } from '../../helpers';
 
 const { Title, Text } = Typography;
@@ -16,6 +17,53 @@ function loadHistory() {
 }
 function saveHistory(hist) {
   sessionStorage.setItem(HISTORY_KEY, JSON.stringify(hist.slice(0, MAX_HISTORY)));
+}
+
+function buildCodeSnippets(payload, apiToken, selectedProject) {
+  const token = apiToken || 'sk-xxx';
+  const payloadJSON = JSON.stringify(payload, null, 2);
+  const headerLines = selectedProject ? `  -H "X-Project-Id: ${selectedProject}" \\\n` : '';
+  const pythonHeaders = selectedProject
+    ? `    'X-Project-Id': '${selectedProject}',\n`
+    : '';
+  const jsHeaders = selectedProject
+    ? `  'X-Project-Id': '${selectedProject}',\n`
+    : '';
+
+  return {
+    curl: `curl -X POST http://localhost:3000/v1/bg/responses \\
+  -H "Authorization: Bearer ${token}" \\
+  -H "Content-Type: application/json" \\
+${headerLines}  -d '${payloadJSON}'`,
+    python: `import requests
+
+payload = ${payloadJSON}
+
+resp = requests.post(
+    'http://localhost:3000/v1/bg/responses',
+    headers={
+        'Authorization': 'Bearer ${token}',
+        'Content-Type': 'application/json',
+${pythonHeaders}    },
+    json=payload,
+)
+
+print(resp.status_code)
+print(resp.text)`,
+    javascript: `const payload = ${payloadJSON};
+
+const resp = await fetch('/v1/bg/responses', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ${token}',
+    'Content-Type': 'application/json',
+${jsHeaders}  },
+  body: JSON.stringify(payload),
+});
+
+console.log(resp.status);
+console.log(await resp.text());`,
+  };
 }
 
 // SSE chunk parser: splits on \n\n boundaries
@@ -45,23 +93,28 @@ export default function BgPlaygroundPage() {
   const [sending, setSending]           = useState(false);
   const [history, setHistory]           = useState(loadHistory);
   const [showHistory, setShowHistory]   = useState(false);
+  const [projects, setProjects]         = useState([]);
+  const [selectedProject, setSelectedProject] = useState('');
   const abortRef = useRef(null);
 
   // Load capability models
-  const fetchCapabilities = useCallback(async () => {
-    try {
-      const res = await API.get('/api/bg/capabilities?p=1&page_size=1000');
+  useEffect(() => {
+    API.get('/api/bg/dev/capabilities').then(res => {
       if (res.data?.success) {
-        const items = res.data.data?.items ?? [];
-        // Unique capability names
-        const names = [...new Set(items.map(i => i.capability_name))].sort();
+        const data = res.data.data;
+        const caps = Array.isArray(data) ? data : (data.items ?? []);
+        const names = [...new Set(caps.map(c => c.capability_name))].sort();
         setCapabilities(names);
-        if (!model && names.length) setModel(names[0]);
+        if (names.length) setModel(prev => prev || names[0]);
       }
-    } catch { /* ignore */ }
-  }, [model]);
-
-  useEffect(() => { fetchCapabilities(); }, []);
+    }).catch(() => {});
+    // Load user projects for X-Project-Id selector
+    API.get('/api/bg/dev/projects?size=100').then(res => {
+      if (res.data?.success) {
+        setProjects(res.data.data?.items || []);
+      }
+    }).catch(() => {});
+  }, []);
 
   const persistToken = (val) => {
     setApiToken(val);
@@ -93,7 +146,7 @@ export default function BgPlaygroundPage() {
     setOutput('');
     setStreamText('');
 
-    const payload = { model, input: parsedInput, execution_mode: execMode };
+    const payload = { model, input: parsedInput, execution_options: { mode: execMode } };
 
     if (execMode === 'stream') {
       // fetch + ReadableStream for SSE (EventSource doesn't support custom headers)
@@ -101,12 +154,15 @@ export default function BgPlaygroundPage() {
         const ctrl = new AbortController();
         abortRef.current = ctrl;
 
-        const resp = await fetch('/v1/bg/responses', {
-          method: 'POST',
-          headers: {
+        const reqHeaders = {
             'Authorization': `Bearer ${apiToken}`,
             'Content-Type': 'application/json',
-          },
+          };
+          if (selectedProject) reqHeaders['X-Project-Id'] = selectedProject;
+
+        const resp = await fetch('/v1/bg/responses', {
+          method: 'POST',
+          headers: reqHeaders,
           body: JSON.stringify(payload),
           signal: ctrl.signal,
         });
@@ -148,12 +204,15 @@ export default function BgPlaygroundPage() {
     } else {
       // sync / async: plain POST
       try {
-        const res = await fetch('/v1/bg/responses', {
-          method: 'POST',
-          headers: {
+        const reqHeaders = {
             'Authorization': `Bearer ${apiToken}`,
             'Content-Type': 'application/json',
-          },
+          };
+          if (selectedProject) reqHeaders['X-Project-Id'] = selectedProject;
+
+        const res = await fetch('/v1/bg/responses', {
+          method: 'POST',
+          headers: reqHeaders,
           body: JSON.stringify(payload),
         });
         const json = await res.json();
@@ -166,13 +225,34 @@ export default function BgPlaygroundPage() {
         setSending(false);
       }
     }
-  }, [apiToken, model, execMode, inputJSON, addHistory, t]);
+  }, [apiToken, model, execMode, inputJSON, selectedProject, addHistory, t]);
 
   const handleAbort = () => {
     abortRef.current?.abort();
     setSending(false);
     Toast.info({ content: t('已中止请求') });
   };
+
+  const copyToClipboard = useCallback((text) => {
+    navigator.clipboard.writeText(text).then(() => {
+      Toast.success({ content: t('已复制到剪贴板') });
+    });
+  }, [t]);
+
+  const codeSnippets = useMemo(() => {
+    let parsedInput = { messages: [{ role: 'user', content: 'Hello!' }] };
+    try {
+      parsedInput = JSON.parse(inputJSON);
+    } catch {
+      // Keep a safe placeholder snippet when the editor JSON is temporarily invalid.
+    }
+
+    return buildCodeSnippets(
+      { model, input: parsedInput, execution_options: { mode: execMode } },
+      apiToken,
+      selectedProject,
+    );
+  }, [apiToken, execMode, inputJSON, model, selectedProject]);
 
   const loadHistoryEntry = (entry) => {
     setModel(entry.model);
@@ -231,6 +311,20 @@ export default function BgPlaygroundPage() {
                   style={{ width: 120, marginTop: 4 }}
                 />
               </div>
+              <div>
+                <Text size='small'>{t('Project')}</Text>
+                <Select
+                  value={selectedProject}
+                  onChange={setSelectedProject}
+                  optionList={[
+                    { value: '', label: t('无') },
+                    ...projects.map(p => ({ value: p.project_id, label: `${p.name} (${p.project_id})` }))
+                  ]}
+                  style={{ width: 220, marginTop: 4 }}
+                  showClear
+                  placeholder={t('选择项目（可选）')}
+                />
+              </div>
             </Space>
           </Card>
 
@@ -258,6 +352,58 @@ export default function BgPlaygroundPage() {
               {showHistory ? t('隐藏历史') : t('历史记录')} ({history.length})
             </Button>
           </Space>
+
+          <Card
+            title={<Text strong>{t('代码生成')}</Text>}
+            shadows='hover'
+            style={{ borderRadius: 12 }}
+            bodyStyle={{ paddingTop: 8 }}
+          >
+            <Tabs type='line'>
+              <TabPane tab='cURL' itemKey='curl'>
+                <Button
+                  icon={<IconCopy />}
+                  size='small'
+                  type='tertiary'
+                  onClick={() => copyToClipboard(codeSnippets.curl)}
+                  style={{ marginBottom: 8 }}
+                >
+                  {t('复制')}
+                </Button>
+                <pre style={{ margin: 0, padding: 12, background: 'var(--semi-color-fill-0)', borderRadius: 8, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {codeSnippets.curl}
+                </pre>
+              </TabPane>
+              <TabPane tab='Python' itemKey='python'>
+                <Button
+                  icon={<IconCopy />}
+                  size='small'
+                  type='tertiary'
+                  onClick={() => copyToClipboard(codeSnippets.python)}
+                  style={{ marginBottom: 8 }}
+                >
+                  {t('复制')}
+                </Button>
+                <pre style={{ margin: 0, padding: 12, background: 'var(--semi-color-fill-0)', borderRadius: 8, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {codeSnippets.python}
+                </pre>
+              </TabPane>
+              <TabPane tab='JavaScript' itemKey='javascript'>
+                <Button
+                  icon={<IconCopy />}
+                  size='small'
+                  type='tertiary'
+                  onClick={() => copyToClipboard(codeSnippets.javascript)}
+                  style={{ marginBottom: 8 }}
+                >
+                  {t('复制')}
+                </Button>
+                <pre style={{ margin: 0, padding: 12, background: 'var(--semi-color-fill-0)', borderRadius: 8, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {codeSnippets.javascript}
+                </pre>
+              </TabPane>
+            </Tabs>
+          </Card>
 
           {showHistory && (
             <Card title={t('最近请求')} shadows='hover' style={{ borderRadius: 12, maxHeight: 300, overflowY: 'auto' }} bodyStyle={{ padding: 8 }}>

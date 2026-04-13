@@ -283,6 +283,31 @@ func SetApiRouter(router *gin.Engine) {
 			bgAdminRoute.DELETE("/policies/routing/:id", controller.AdminDeleteBgRoutingPolicy)
 		}
 
+		// Developer-scoped BaseGate API — UserAuth() (non-admin users can access)
+		bgDevRoute := apiRouter.Group("/bg/dev")
+		bgDevRoute.Use(middleware.UserAuth())
+		{
+			// API Keys
+			bgDevRoute.GET("/apikeys", controller.DevListBgApiKeys)
+			bgDevRoute.POST("/apikeys", controller.DevCreateBgApiKey)
+			bgDevRoute.DELETE("/apikeys/:id", controller.DevDeleteBgApiKey)
+			bgDevRoute.POST("/apikeys/:id/reveal",
+				middleware.CriticalRateLimit(),
+				middleware.DisableCache(),
+				controller.DevRevealBgApiKey)
+
+			// Projects (user-scoped)
+			bgDevRoute.GET("/projects", controller.DevListBgProjects)
+			bgDevRoute.POST("/projects", controller.DevCreateBgProject)
+
+			// Usage & Responses (user-scoped, read-only)
+			bgDevRoute.GET("/usage", controller.DevGetBgUsage)
+			bgDevRoute.GET("/responses", controller.DevListBgResponses)
+
+			// Capabilities (read-only, active-only, with pricing)
+			bgDevRoute.GET("/capabilities", controller.DevListBgCapabilities)
+		}
+
 		tokenRoute := apiRouter.Group("/token")
 		tokenRoute.Use(middleware.UserAuth())
 		{

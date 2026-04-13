@@ -73,7 +73,7 @@ func AdminCreateBgCapabilityPolicy(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, policy)
+	common.ApiSuccess(c, policy)
 }
 
 // AdminUpdateBgCapabilityPolicy handles PUT /api/bg/policies/capabilities/:id
@@ -231,7 +231,7 @@ func AdminCreateBgRoutingPolicy(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, policy)
+	common.ApiSuccess(c, policy)
 }
 
 // AdminUpdateBgRoutingPolicy handles PUT /api/bg/policies/routing/:id

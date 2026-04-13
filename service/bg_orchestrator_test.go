@@ -275,7 +275,7 @@ func TestGetResponse(t *testing.T) {
 	}
 	require.NoError(t, resp.Insert())
 
-	result, err := GetResponse("resp_get_test")
+	result, err := GetResponse("resp_get_test", 1) // orgID=1 matches test data
 	require.NoError(t, err)
 	assert.Equal(t, "resp_get_test", result.ID)
 	assert.Equal(t, "succeeded", result.Status)

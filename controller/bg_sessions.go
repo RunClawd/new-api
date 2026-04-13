@@ -3,7 +3,6 @@ package controller
 import (
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -29,7 +28,16 @@ func PostSessions(c *gin.Context) {
 
 	// Read auth bounds (would normally come from middleware check)
 	orgID := c.GetInt("id") // Tenant ID
-	projectID, _ := strconv.Atoi(c.GetHeader("X-Project-Id"))
+	projectID, projErr := resolveProjectID(c)
+	if projErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"code":    "invalid_project",
+				"message": projErr.Error(),
+			},
+		})
+		return
+	}
 	apiKeyID := c.GetInt("token_id")
 
 	// Construct CanonicalRequest
@@ -80,7 +88,8 @@ func GetSessionByID(c *gin.Context) {
 		return
 	}
 
-	sessionResp, err := service.GetSession(sessionID)
+	orgID := c.GetInt("id")
+	sessionResp, err := service.GetSession(sessionID, orgID)
 	if err != nil {
 		writeBGError(c, err)
 		return
@@ -107,7 +116,8 @@ func PostSessionAction(c *gin.Context) {
 		return
 	}
 
-	actionResp, err := service.ExecuteSessionAction(sessionID, &actionReq)
+	orgID := c.GetInt("id")
+	actionResp, err := service.ExecuteSessionAction(sessionID, orgID, &actionReq)
 	if err != nil {
 		writeBGError(c, err)
 		return
@@ -126,7 +136,8 @@ func CloseSessionByID(c *gin.Context) {
 		return
 	}
 
-	sessionResp, err := service.CloseSession(sessionID)
+	orgID := c.GetInt("id")
+	sessionResp, err := service.CloseSession(sessionID, orgID)
 	if err != nil {
 		writeBGError(c, err)
 		return

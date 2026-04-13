@@ -151,16 +151,21 @@ func CreateSession(req *relaycommon.CanonicalRequest) (*dto.BGSessionResponse, e
 }
 
 // GetSession retrieves the current state of a session.
-func GetSession(sessionID string) (*dto.BGSessionResponse, error) {
+// orgID enforces tenant isolation — pass 0 to skip (admin context).
+func GetSession(sessionID string, orgID int) (*dto.BGSessionResponse, error) {
 	bgSess, err := model.GetBgSessionBySessionID(sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrSessionNotFound, err)
+	}
+	if orgID > 0 && bgSess.OrgID != orgID {
+		return nil, ErrSessionNotFound
 	}
 	return buildSessionResponseFromDB(bgSess)
 }
 
 // ExecuteSessionAction runs an action against a session with concurrency guards.
-func ExecuteSessionAction(sessionID string, req *dto.BGSessionActionRequest) (*dto.BGSessionActionResponse, error) {
+// orgID enforces tenant isolation — pass 0 to skip (admin context).
+func ExecuteSessionAction(sessionID string, orgID int, req *dto.BGSessionActionRequest) (*dto.BGSessionActionResponse, error) {
 	// 1. Idempotency Check
 	if req.IdempotencyKey != "" {
 		existing, err := model.GetBgSessionActionByIdempotencyKey(sessionID, req.IdempotencyKey)
@@ -173,6 +178,9 @@ func ExecuteSessionAction(sessionID string, req *dto.BGSessionActionRequest) (*d
 	bgSess, err := model.GetBgSessionBySessionID(sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrSessionNotFound, err)
+	}
+	if orgID > 0 && bgSess.OrgID != orgID {
+		return nil, ErrSessionNotFound
 	}
 
 	if bgSess.Status.IsTerminal() {
@@ -259,10 +267,14 @@ func ExecuteSessionAction(sessionID string, req *dto.BGSessionActionRequest) (*d
 }
 
 // CloseSession cleanly terminates a session, closing the upstream connection and triggering billing.
-func CloseSession(sessionID string) (*dto.BGSessionResponse, error) {
+// orgID enforces tenant isolation — pass 0 to skip (admin context).
+func CloseSession(sessionID string, orgID int) (*dto.BGSessionResponse, error) {
 	bgSess, err := model.GetBgSessionBySessionID(sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrSessionNotFound, err)
+	}
+	if orgID > 0 && bgSess.OrgID != orgID {
+		return nil, ErrSessionNotFound
 	}
 
 	if bgSess.Status.IsTerminal() {
@@ -280,7 +292,8 @@ func CloseSession(sessionID string) (*dto.BGSessionResponse, error) {
 	success, err := bgSess.CASUpdateStatus(bgSess.Status, bgSess.StatusVersion, model.BgSessionStatusClosed)
 	if err != nil || !success {
 		// Possibly concurrent close? Force reload and return.
-		return GetSession(sessionID)
+		// orgID=0 since we already validated above.
+		return GetSession(sessionID, 0)
 	}
 
 	// Trigger billing + write usage back to session for API response

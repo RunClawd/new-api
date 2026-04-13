@@ -53,6 +53,7 @@ export const DEFAULT_ADMIN_CONFIG = {
     user: true,
     subscription: true,
     setting: true,
+    bgDashboard: true,
     bgUsage: true,
     bgResponses: true,
     bgCapabilities: true,
@@ -60,6 +61,18 @@ export const DEFAULT_ADMIN_CONFIG = {
     bgSessions: true,
     bgProjects: true,
     bgBilling: true,
+    bgAudit: true,
+    bgWebhooks: true,
+    bgPlayground: true,
+    bgPolicies: true,
+  },
+  bgDev: {
+    enabled: true,
+    bgDevDashboard: true,
+    bgApiKeys: true,
+    bgDevProjects: true,
+    bgCapabilitiesDev: true,
+    bgPlaygroundDev: true,
   },
 };
 

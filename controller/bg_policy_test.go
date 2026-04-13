@@ -86,10 +86,15 @@ func TestAdminCapabilityPolicy_CRUD(t *testing.T) {
 	}
 	ctx, rec := policyCtx(t, http.MethodPost, "/api/bg/policies/capabilities", createBody)
 	AdminCreateBgCapabilityPolicy(ctx)
-	require.Equal(t, http.StatusCreated, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	var created model.BgCapabilityPolicy
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	var createResp struct {
+		Success bool                     `json:"success"`
+		Data    model.BgCapabilityPolicy `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.True(t, createResp.Success)
+	created := createResp.Data
 	assert.Equal(t, "platform", created.Scope)
 	assert.Equal(t, "deny", created.Action)
 	assert.Equal(t, "active", created.Status) // default
@@ -168,10 +173,15 @@ func TestAdminRoutingPolicy_CRUD(t *testing.T) {
 	}
 	ctx, rec := policyCtx(t, http.MethodPost, "/api/bg/policies/routing", createBody)
 	AdminCreateBgRoutingPolicy(ctx)
-	require.Equal(t, http.StatusCreated, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	var created model.BgRoutingPolicy
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	var createResp struct {
+		Success bool                  `json:"success"`
+		Data    model.BgRoutingPolicy `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.True(t, createResp.Success)
+	created := createResp.Data
 	assert.Equal(t, "org", created.Scope)
 	assert.Equal(t, "fixed", created.Strategy)
 	assert.True(t, created.ID > 0)
@@ -247,7 +257,7 @@ func TestAdminPolicy_AuditLogged(t *testing.T) {
 	}
 	ctx, rec := policyCtx(t, http.MethodPost, "/api/bg/policies/capabilities", body)
 	AdminCreateBgCapabilityPolicy(ctx)
-	require.Equal(t, http.StatusCreated, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	// RecordBgAuditLog writes asynchronously in a goroutine — brief wait
 	time.Sleep(100 * time.Millisecond)

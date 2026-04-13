@@ -9,9 +9,11 @@ type BgCapability struct {
 	SupportedModes string `json:"supported_modes" gorm:"type:varchar(100)"` // "sync,stream"
 	BillableUnit   string `json:"billable_unit" gorm:"type:varchar(50)"`  // "token", "minute"
 	SupportsCancel bool   `json:"supports_cancel" gorm:"default:false"`
-	Description    string `json:"description" gorm:"type:text"`
-	Status         string `json:"status" gorm:"type:varchar(20);default:'active'"`
-	CreatedAt      int64  `json:"created_at" gorm:"autoCreateTime"`
+	Description      string `json:"description" gorm:"type:text"`
+	InputSchemaJSON  string `json:"input_schema_json,omitempty" gorm:"type:text"`  // Phase 15: JSON Schema for capability input
+	OutputSchemaJSON string `json:"output_schema_json,omitempty" gorm:"type:text"` // Phase 15: JSON Schema for capability output
+	Status           string `json:"status" gorm:"type:varchar(20);default:'active'"`
+	CreatedAt        int64  `json:"created_at" gorm:"autoCreateTime"`
 }
 
 // GetActiveBgCapabilities returns a list of active capabilities matching the basegate capabilities.

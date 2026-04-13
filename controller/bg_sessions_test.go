@@ -116,6 +116,7 @@ func TestGetSessionByID(t *testing.T) {
 	sess := &model.BgSession{
 		SessionID:         "sess_abc",
 		ResponseID:        "resp_abc",
+		OrgID:             1, // must match c.GetInt("id") set by newBgTestContext
 		Status:            model.BgSessionStatusIdle,
 		Model:             "bg.test",
 		CreatedAt:         time.Now().Unix(),
@@ -158,6 +159,7 @@ func TestPostSessionAction_SuccessAndIdempotency(t *testing.T) {
 	sess := &model.BgSession{
 		SessionID:         "sess_action",
 		ResponseID:        "resp_action",
+		OrgID:             1, // must match c.GetInt("id") set by newBgTestContext
 		Status:            model.BgSessionStatusActive,
 		Model:             "bg.sandbox.python",
 		AdapterName:       "sess_mock2",
@@ -213,6 +215,7 @@ func TestCloseSessionByID(t *testing.T) {
 	sess := &model.BgSession{
 		SessionID:         "sess_close",
 		ResponseID:        "resp_close",
+		OrgID:             1, // must match c.GetInt("id") set by newBgTestContext
 		Status:            model.BgSessionStatusActive,
 		Model:             "bg.sandbox.python",
 		AdapterName:       "sess_mock2",
