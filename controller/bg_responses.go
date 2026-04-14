@@ -35,6 +35,12 @@ func PostResponses(c *gin.Context) {
 		return
 	}
 
+	dispatchBaseGateRequest(c, &req)
+}
+
+// dispatchBaseGateRequest is the shared dispatch logic used by both
+// PostResponses (HTTP JSON body) and ExecuteTool (tool call conversion).
+func dispatchBaseGateRequest(c *gin.Context, req *dto.BaseGateRequest) {
 	projectID, projErr := resolveProjectID(c)
 	if projErr != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -48,13 +54,13 @@ func PostResponses(c *gin.Context) {
 
 	// Build canonical request
 	canonicalReq := &relaycommon.CanonicalRequest{
-		RequestID:  relaycommon.GenerateResponseID(), // reuse generator for request IDs
+		RequestID:  relaycommon.GenerateResponseID(),
 		ResponseID: relaycommon.GenerateResponseID(),
 		Model:      req.Model,
-		OrgID:      c.GetInt("id"), // Context "id" is the user/tenant ID set by TokenAuth
+		OrgID:      c.GetInt("id"),
 		ProjectID:  projectID,
 		ApiKeyID:   c.GetInt("token_id"),
-		EndUserID:  req.Metadata["user_id"], // Optional user tracking alias
+		EndUserID:  req.Metadata["user_id"],
 		Input:      req.Input,
 		Metadata:   req.Metadata,
 	}
@@ -78,12 +84,12 @@ func PostResponses(c *gin.Context) {
 		BillingSource: "hosted",
 	}
 
-	// Capability policy check — before mode dispatch, covers sync/async/stream
+	// Capability policy check
 	allowed, reason, policyErr := service.EvaluateCapabilityAccess(
 		canonicalReq.OrgID, canonicalReq.ProjectID, canonicalReq.ApiKeyID, canonicalReq.Model)
 	if policyErr != nil {
-		common.SysError("PostResponses policy evaluation failed: " + policyErr.Error())
-		writeBGError(c, policyErr) // no sentinel match -> defaults to 500 internal_error
+		common.SysError("dispatchBaseGateRequest policy evaluation failed: " + policyErr.Error())
+		writeBGError(c, policyErr)
 		return
 	}
 	if !allowed {
@@ -110,24 +116,22 @@ func PostResponses(c *gin.Context) {
 	case "stream":
 		err = service.DispatchStream(canonicalReq, c)
 		if err != nil {
-			common.SysError("PostResponses stream error: " + err.Error())
-			// DispatchStream already writes header if it started streaming, but if it errored before, we return JSON.
+			common.SysError("dispatchBaseGateRequest stream error: " + err.Error())
 			if !c.Writer.Written() {
 				writeBGError(c, err)
 			}
 		}
-		return // Stream handled entirely within DispatchStream
-	default: // sync
+		return
+	default:
 		resp, err = service.DispatchSync(canonicalReq)
 	}
 
 	if err != nil {
-		common.SysError("PostResponses error: " + err.Error())
+		common.SysError("dispatchBaseGateRequest error: " + err.Error())
 		writeBGError(c, err)
 		return
 	}
 
-	// Set appropriate HTTP status
 	statusCode := http.StatusOK
 	if !model.BgResponseStatus(resp.Status).IsTerminal() {
 		statusCode = http.StatusAccepted

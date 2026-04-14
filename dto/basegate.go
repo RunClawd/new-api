@@ -168,3 +168,35 @@ type BGModelLimits struct {
 	MaxDurationSec  int `json:"max_duration_sec,omitempty"`
 	MaxFileSizeMB   int `json:"max_file_size_mb,omitempty"`
 }
+
+// ---------------------------------------------------------------------------
+// Tool Projection (Phase 15)
+// ---------------------------------------------------------------------------
+
+// ToolDefinition follows the OpenAI function calling tool format.
+type ToolDefinition struct {
+	Type     string             `json:"type"`     // always "function"
+	Function ToolFunctionSchema `json:"function"`
+}
+
+// ToolFunctionSchema describes a callable tool function.
+type ToolFunctionSchema struct {
+	Name        string      `json:"name"`                // bg_llm_chat_standard
+	Description string      `json:"description"`
+	Parameters  interface{} `json:"parameters,omitempty"` // parsed InputSchemaJSON
+}
+
+// ToolExecuteRequest is the body for POST /v1/bg/tools/execute.
+type ToolExecuteRequest struct {
+	Name      string                 `json:"name" binding:"required"` // bg_llm_chat_standard
+	Arguments map[string]interface{} `json:"arguments"`
+	Mode      string                 `json:"mode,omitempty"` // sync | async | stream; default sync
+	Metadata  map[string]string      `json:"metadata,omitempty"`
+}
+
+// ToolExecuteResponse wraps the BaseGateResponse with tool-specific context.
+type ToolExecuteResponse struct {
+	ToolCallID string           `json:"tool_call_id"`
+	Name       string           `json:"name"`
+	Response   BaseGateResponse `json:"response"`
+}

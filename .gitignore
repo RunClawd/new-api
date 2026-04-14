@@ -30,3 +30,10 @@ data/
 .gomodcache/
 .gocache-temp
 .gopath
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/

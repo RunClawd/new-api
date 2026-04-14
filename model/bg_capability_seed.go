@@ -131,8 +131,169 @@ func SeedBgCapabilities() error {
 	// ModelRatio/ModelPrice from the options table) runs AFTER migrateDB().
 	// Calling seedBgDefaultPricing() here would be overwritten by InitOptionMap().
 	// Instead, call SeedBgDefaultPricing() from main.go after InitOptionMap().
+
+	// Phase 15: populate InputSchemaJSON/OutputSchemaJSON for Tool projection.
+	updateSeedSchemas()
+
 	return nil
 }
+
+// updateSeedSchemas fills InputSchemaJSON and OutputSchemaJSON for capabilities
+// that don't have them yet. Called idempotently at every startup.
+func updateSeedSchemas() {
+	schemas := map[string][2]string{
+		"bg.llm.chat.fast":              {llmChatInputSchema, llmChatOutputSchema},
+		"bg.llm.chat.standard":          {llmChatInputSchema, llmChatOutputSchema},
+		"bg.llm.chat.pro":               {llmChatInputSchema, llmChatOutputSchema},
+		"bg.llm.reasoning.pro":          {llmReasoningInputSchema, llmReasoningOutputSchema},
+		"bg.video.generate.standard":    {videoGenerateInputSchema, videoGenerateOutputSchema},
+		"bg.video.generate.pro":         {videoGenerateInputSchema, videoGenerateOutputSchema},
+		"bg.video.upscale.standard":     {videoUpscaleInputSchema, videoUpscaleOutputSchema},
+		"bg.sandbox.python":             {sandboxPythonInputSchema, sandboxPythonOutputSchema},
+		"bg.sandbox.session.standard":   {sandboxSessionInputSchema, sandboxSessionOutputSchema},
+	}
+	for name, s := range schemas {
+		DB.Model(&BgCapability{}).
+			Where("capability_name = ? AND (input_schema_json IS NULL OR input_schema_json = '')", name).
+			Updates(map[string]interface{}{
+				"input_schema_json":  s[0],
+				"output_schema_json": s[1],
+			})
+	}
+}
+
+// --- JSON Schema constants for seed capabilities ---
+
+const llmChatInputSchema = `{
+  "type": "object",
+  "properties": {
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "role": {"type": "string", "enum": ["system", "user", "assistant"]},
+          "content": {"type": "string"}
+        },
+        "required": ["role", "content"]
+      },
+      "minItems": 1,
+      "description": "Conversation messages"
+    },
+    "temperature": {"type": "number", "minimum": 0, "maximum": 2, "description": "Sampling temperature"},
+    "max_tokens": {"type": "integer", "minimum": 1, "description": "Maximum tokens to generate"}
+  },
+  "required": ["messages"]
+}`
+
+const llmChatOutputSchema = `{
+  "type": "object",
+  "properties": {
+    "content": {"type": "string", "description": "Generated text response"}
+  }
+}`
+
+const llmReasoningInputSchema = `{
+  "type": "object",
+  "properties": {
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "role": {"type": "string", "enum": ["system", "user", "assistant"]},
+          "content": {"type": "string"}
+        },
+        "required": ["role", "content"]
+      },
+      "minItems": 1,
+      "description": "Conversation messages"
+    },
+    "reasoning_effort": {"type": "string", "enum": ["low", "medium", "high"], "description": "Reasoning depth control"},
+    "max_tokens": {"type": "integer", "minimum": 1, "description": "Maximum tokens to generate"}
+  },
+  "required": ["messages"]
+}`
+
+const llmReasoningOutputSchema = `{
+  "type": "object",
+  "properties": {
+    "content": {"type": "string", "description": "Generated text response"},
+    "reasoning_content": {"type": "string", "description": "Chain-of-thought reasoning trace"}
+  }
+}`
+
+const videoGenerateInputSchema = `{
+  "type": "object",
+  "properties": {
+    "prompt": {"type": "string", "description": "Video generation prompt"},
+    "duration": {"type": "integer", "minimum": 1, "maximum": 60, "description": "Duration in seconds"},
+    "aspect_ratio": {"type": "string", "enum": ["16:9", "9:16", "1:1"], "description": "Output aspect ratio"}
+  },
+  "required": ["prompt"]
+}`
+
+const videoGenerateOutputSchema = `{
+  "type": "object",
+  "properties": {
+    "video_url": {"type": "string", "description": "URL to generated video"},
+    "duration": {"type": "number", "description": "Actual duration in seconds"}
+  }
+}`
+
+const videoUpscaleInputSchema = `{
+  "type": "object",
+  "properties": {
+    "video_url": {"type": "string", "description": "URL to source video"},
+    "target_resolution": {"type": "string", "enum": ["1080p", "2k", "4k"], "description": "Target resolution"}
+  },
+  "required": ["video_url"]
+}`
+
+const videoUpscaleOutputSchema = `{
+  "type": "object",
+  "properties": {
+    "video_url": {"type": "string", "description": "URL to upscaled video"},
+    "resolution": {"type": "string", "description": "Actual output resolution"}
+  }
+}`
+
+const sandboxPythonInputSchema = `{
+  "type": "object",
+  "properties": {
+    "code": {"type": "string", "description": "Python code to execute"},
+    "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 300000, "description": "Execution timeout in milliseconds"}
+  },
+  "required": ["code"]
+}`
+
+const sandboxPythonOutputSchema = `{
+  "type": "object",
+  "properties": {
+    "stdout": {"type": "string", "description": "Standard output"},
+    "stderr": {"type": "string", "description": "Standard error"},
+    "exit_code": {"type": "integer", "description": "Process exit code"}
+  }
+}`
+
+const sandboxSessionInputSchema = `{
+  "type": "object",
+  "properties": {
+    "action": {"type": "string", "enum": ["execute", "upload", "download"], "description": "Session action type"},
+    "code": {"type": "string", "description": "Code to execute (for execute action)"},
+    "path": {"type": "string", "description": "File path (for upload/download actions)"}
+  },
+  "required": ["action"]
+}`
+
+const sandboxSessionOutputSchema = `{
+  "type": "object",
+  "properties": {
+    "stdout": {"type": "string", "description": "Standard output"},
+    "stderr": {"type": "string", "description": "Standard error"},
+    "files": {"type": "array", "items": {"type": "string"}, "description": "List of file paths"}
+  }
+}`
 
 // SeedBgDefaultPricing writes default prices for BaseGate capabilities into
 // the in-memory ratio/price maps AND persists them to the options table.

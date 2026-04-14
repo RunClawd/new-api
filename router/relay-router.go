@@ -127,6 +127,10 @@ func SetRelayRouter(router *gin.Engine) {
 		httpRouter.POST("/bg/sessions/:id/action", controller.PostSessionAction)
 		httpRouter.POST("/bg/sessions/:id/close", controller.CloseSessionByID)
 
+		// BaseGate Tool routes (Phase 15)
+		httpRouter.GET("/bg/tools", controller.ListTools)
+		httpRouter.POST("/bg/tools/execute", controller.ExecuteTool)
+
 		// image related routes
 		httpRouter.POST("/edits", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIImage)
