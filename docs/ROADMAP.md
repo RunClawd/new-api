@@ -1,7 +1,7 @@
 # BaseGate Development Roadmap
 
-> 基于 Phase 13 完成后的现状分析，Phase 11–13 已全部交付。
-> 下一步：Phase 14（开发者前端）→ Phase 17（产品化），约 5 周达到可内测状态。
+> 基于 Phase 14 完成后的现状分析，Phase 11–14 已全部交付。
+> 下一步：Phase 15（Tool 投影 + SDK）→ Phase 17（产品化），约 4 周达到可内测状态。
 
 ---
 
@@ -12,14 +12,14 @@
 | 维度 | 完成度 | 说明 |
 |------|--------|------|
 | 核心引擎 | ✅ 100% | 四种执行模式 + 双状态机 + CAS + 熔断 + 预授权 + BYO 全链路 |
-| API 协议 | 95% | 7 个 BaseGate 路由 + Admin API + Usage API |
+| API 协议 | ✅ 100% | 7 个 BaseGate 路由 + Admin API + Usage API + Developer API（/api/bg/dev/*）|
 | Provider 适配器 | 65% | 6 个原生 (OpenAI/Anthropic/Gemini/DeepSeek/Kling/E2B) + 10 个 Legacy Bridge |
 | 多租户治理 | ✅ 100% | Capability Policy + Routing Policy + BYO Credential |
 | 路由调度 | ✅ 100% | 四策略（fixed/weighted/primary_backup/byo_first）+ 熔断 + Policy Cache |
 | 计费完整度 | ✅ 100% | 四层账务 + 预授权 + Billing 状态机 + BYO 平台费（per_request/percentage）|
 | 策略引擎 | ✅ 100% | Capability Policy + Routing Policy 全功能实现，测试覆盖完整 |
-| 前端 | 40% | 8 个 Bg 页面（Dashboard/Responses/Sessions/Capabilities/Adapters/Billing/Usage/Projects）；缺开发者控制台、策略配置 UI |
-| 测试 | 90% | 40+ test files；BYO 全链路测试通过，`go build ./...` + `go test` 全绿 |
+| 前端 | 75% | 14 个 Bg 页面（Admin: Dashboard/Responses/Sessions/Capabilities/Adapters/Billing/Usage/Projects/Audit/Webhooks/Policies；Dev: DevDashboard/ApiKeys/DevProjects/Playground）；开发者自助闭环已打通 |
+| 测试 | 90% | 40+ test files + Phase 14 新增 6 个测试文件（22 test cases）；`go build ./...` + `go test` 全绿 |
 
 ### Schema 规范 vs 实现差距
 
@@ -478,10 +478,17 @@ type DeepSeekLLMAdapter struct {
 
 ### 14.6 验收标准
 
-- [ ] 开发者可自助注册 → 创建 Project → 创建 API Key → Playground 测试 → 查看用量
-- [ ] 管理员可在 UI 上配置 Capability Policy 和 Routing Policy
-- [ ] 所有新页面支持中英文 i18n
-- [ ] 移动端基本可用（响应式布局）
+- [x] 开发者可自助创建 Project → 创建 API Key → Playground 测试 → 查看用量
+- [x] 管理员可在 UI 上配置 Capability Policy 和 Routing Policy（CRUD 表单完整）
+- [x] 所有新页面支持中英文 i18n（70+ 翻译键已添加到 en.json）
+- [x] Relay 侧 5 个端点 IDOR 修复：service 层 orgID 归属校验（22 test cases 覆盖）
+- [x] resolveProjectID 支持公开标识符 + 数字回退 + org 归属校验 + audit log
+- [x] Token→Project 绑定注入（middleware/auth.go）
+- [x] Developer API 层 `/api/bg/dev/*` 全部就绪（apikeys/projects/usage/responses/capabilities）
+- [x] 开发者侧边栏独立分组（所有登录用户可见，非 admin 独占）
+- [x] Playground 协议修复：`execution_options.mode` 替代 `execution_mode`
+- [x] BgCapabilities 可展开行：详情面板 + schema 预览 + 示例 curl
+- [ ] 移动端基本可用（响应式布局）— 未专门适配验证，留待 Phase 17
 
 ---
 
@@ -641,14 +648,18 @@ result = bg.tools.execute(name="bg_video_generate_standard", arguments={...})
 | Provider 覆盖 | 6 原生 + 10 legacy | 够用 |
 | 多租户治理 | 完整 | 够用 |
 | 计费 | 完整含 BYO | 够用 |
-| 前端 | 管理后台完整，**开发者面板缺失** | 开发者无法自助使用 |
+| 前端 | ✅ 管理后台 + 开发者面板 完整 | Phase 14 已交付开发者自助闭环 |
 | 文档 | 无 | **致命缺失**——没有 API 文档，SDK 等于不存在 |
 | 认证/注册 | 继承 new-api 的用户系统 | 缺开发者自助注册流程 |
 | 部署 | Dockerfile 有 | 缺部署文档、环境变量说明、一键部署脚本 |
 | 安全 | BYO 凭证加密有了 | 缺 per-key rate limit、IP 白名单、abuse 防护 |
 | 高可用 | 单实例 | 缺多实例部署验证 |
 
-### 17.1 开发者最小前端 (P0, 2-3d)
+### 17.1 开发者最小前端 (P0, 2-3d) — ✅ 已在 Phase 14 完成
+
+> Phase 14 已实现完整的开发者自助闭环：DevDashboard（趋势图 + 请求详情）、ApiKeys（CRUD + 项目绑定）、
+> DevProjects（创建/管理）、Capabilities（详情面板 + 示例请求）、Playground（代码生成 + stream）。
+> 以下原始计划保留作为设计参考。
 
 开发者的核心循环是：**拿到 Key → 调 API → 看结果 → 查用量/花费 → 续费/调整**。
 
@@ -808,14 +819,14 @@ Phase 11 (Billing 状态机 + 测试)  ← ✅ 已完成
     │       │
     │       └── Phase 13 (BYO 全链路 + 适配器) ← ✅ 已完成
     │               │
-    │               └── Phase 14 (前端改造)     ← 📋 下一阶段（5-7d）
+    │               └── Phase 14 (前端改造)     ← ✅ 已完成
     │
-    ├── Phase 15 (Tool 投影 + SDK) ← 📋 就绪，可与 14 并行（4-5d）
+    ├── Phase 15 (Tool 投影 + SDK) ← 📋 下一阶段（4-5d）
     │       │
     │       └── Phase 16 (可观测性) ← 依赖整体稳定（3-4d）
     │
-    └── Phase 17 (产品化补齐)     ← 依赖 14 (前端基础) + 15 (SDK)（8-12d）
-                                     开发者前端 + 文档 + 注册 + 安全 + 部署
+    └── Phase 17 (产品化补齐)     ← 依赖 15 (SDK) + 16 (可观测性)（8-12d）
+                                     文档 + 注册 + 安全 + 部署 + Landing Page
 ```
 
 ```
@@ -824,16 +835,16 @@ Phase 11 (Billing 状态机 + 测试)  ← ✅ 已完成
 Phase 11 ──── ✅ 已完成（Billing 状态机 + Reconciliation + 测试加固）
 Phase 12 ──── ✅ 已完成（Capability Policy + Routing Policy）
 Phase 13 ──── ✅ 已完成（BYO 全链路 + Anthropic/Gemini/DeepSeek 适配器）
-Phase 14 ──── 📋 下一阶段   (开发者控制台 + 策略 UI)
-Phase 15 ──── Week 1 ~ Week 2    (可与 14 后半段并行)
-Phase 16 ──── Week 2 ~ Week 3
-Phase 17 ──── Week 3 ~ Week 5    (产品化：前端 + 文档 + 安全 + 部署)
+Phase 14 ──── ✅ 已完成     (开发者控制台 + 策略 UI + IDOR 修复 + 22 test cases)
+Phase 15 ──── 📋 下一阶段   (Tool 投影 + SDK)
+Phase 16 ──── Week 1 ~ Week 2    (可观测性)
+Phase 17 ──── Week 2 ~ Week 4    (产品化：文档 + 注册 + 安全 + 部署)
 
-总计：约 5 周达到真正可内测状态
+总计：约 4 周达到真正可内测状态
 ```
 
-> **注**：Phase 11-16（6-7 周）完成的是全部技术引擎。Phase 17 额外的 2 周
-> 补齐产品化必需品（用户入口、文档、安全），两者缺一不可。
+> **注**：Phase 11-14 已完成（引擎 + 治理 + BYO + 开发者前端）。Phase 15-16（~2 周）完成
+> Tool 投影 + 可观测性。Phase 17（~2 周）补齐产品化必需品（文档、注册、安全、部署）。
 
 ---
 
@@ -843,10 +854,10 @@ Phase 17 ──── Week 3 ~ Week 5    (产品化：前端 + 文档 + 安全 +
 
 > ✅ **已实现**: pre-auth ↔ billing 打通 + Capability/Routing Policy 完整实现 + 测试全绿
 
-### M2: BYO 闭环 + Provider 覆盖 + 开发者体验 (Phase 13+14)
+### M2: BYO 闭环 + Provider 覆盖 + 开发者体验 (Phase 13+14) ✅
 
 > ✅ **Phase 13 已完成**：BYO 计费全链路 + Claude/Gemini/DeepSeek 原生适配 + 凭证注入安全
-> 📋 **Phase 14 待执行**：开发者控制台 + Playground + 策略配置 UI
+> ✅ **Phase 14 已完成**：开发者控制台（DevDashboard/ApiKeys/DevProjects）+ Playground 代码生成 + 策略 CRUD UI + IDOR 安全修复 + 22 test cases
 
 ### M3: 技术引擎完成 (Phase 15+16 完成)
 
@@ -865,7 +876,7 @@ Phase 17 ──── Week 3 ~ Week 5    (产品化：前端 + 文档 + 安全 +
 | ~~Phase 13 体量大~~ | ✅ 已完成 | BYO 计费 + 3 原生适配器全部交付 |
 | Anthropic API 格式变化频繁 | 原生适配器维护成本 | 已复用 `claude.RequestOpenAI2ClaudeMessage` 转换器，隔离 API 变化 |
 | BYO credential 泄露 | 安全事故 | AES-256 加密 + 访问审计 + key rotation API |
-| 前端工作量超预期 | Phase 14 延期 | Playground 可后置，优先 Dashboard + Key 管理 |
+| ~~前端工作量超预期~~ | ✅ Phase 14 已完成 | 14 个页面全部交付，开发者自助闭环打通 |
 | 单人开发瓶颈 | 整体进度 | 优先 M1（治理）和 M2 的后端部分，前端可分批交付 |
 | E2E 测试（session/streaming）超时 | Phase 11 延期 | 核心 preauth billing 测试先行，E2E 可滑入 Phase 12 初期 |
 | Legacy wrapper 与新路由引擎冲突 | 路由行为不一致 | Phase 12 中统一走 bg_router，legacy wrapper 仍是 adapter 实现 |
