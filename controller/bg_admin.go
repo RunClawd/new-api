@@ -287,6 +287,23 @@ func AdminResetBgCircuit(c *gin.Context) {
 	})
 }
 
+// AdminClearBgCache handles POST /api/bg/admin/cache/clear
+// Clears policy cache and forces a reload from database.
+func AdminClearBgCache(c *gin.Context) {
+	if err := service.InvalidatePolicyCache(); err != nil {
+		common.ApiErrorMsg(c, "failed to clear policy cache: "+err.Error())
+		return
+	}
+	common.ApiSuccess(c, gin.H{"message": "policy cache cleared and reloaded"})
+}
+
+// AdminListBgCircuitBreakers handles GET /api/bg/admin/circuit-breakers
+// Returns all adapter circuit breaker states.
+func AdminListBgCircuitBreakers(c *gin.Context) {
+	states := basegate.ListCircuitStates()
+	common.ApiSuccess(c, states)
+}
+
 // AdminListBgBillingRecords handles GET /api/bg/billing/records
 func AdminListBgBillingRecords(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)

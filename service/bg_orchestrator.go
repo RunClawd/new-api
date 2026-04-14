@@ -52,6 +52,16 @@ func checkIdempotency(orgID int, idempotencyKey string, currentInput interface{}
 // DispatchSync handles synchronous capability requests (LLM chat, etc.).
 // Flow: idempotency check → lookup adapter → create response (with pricing snapshot) → invoke → finalize.
 func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, error) {
+	dispatchStart := time.Now()
+	logCtx := fmt.Sprintf("[bg] org=%d proj=%d resp=%s cap=%s mode=sync", req.OrgID, req.ProjectID, req.ResponseID, req.Model)
+	defer func() {
+		elapsed := time.Since(dispatchStart).Seconds()
+		BgRequestDuration.WithLabelValues(req.Model, "sync").Observe(elapsed)
+		if elapsed > 10 {
+			common.SysError(fmt.Sprintf("%s SLOW REQUEST: %.1fs", logCtx, elapsed))
+		}
+	}()
+
 	// 1. Idempotency check
 	if existing, err := checkIdempotency(req.OrgID, req.IdempotencyKey, req.Input); err != nil {
 		return nil, err // ErrIdempotencyConflict
@@ -122,7 +132,9 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 	})
 
 	// 5. Fallback loop for Sync Invocation
+	var lastAdapterName string
 	for i, adapter := range adapters {
+		lastAdapterName = adapter.Adapter.Name()
 		// Circuit breaker check — skip adapters whose circuit is OPEN
 		if !basegate.CanAttempt(adapter.Adapter.Name()) {
 			common.SysLog(fmt.Sprintf("fallback: %s circuit open, skipping", adapter.Adapter.Name()))
@@ -212,12 +224,28 @@ func DispatchSync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, err
 
 	// 6. Build API response from DB
 	bgResp, _ = model.GetBgResponseByResponseID(req.ResponseID)
+
+	// Metrics: record completed request
+	BgRequestsTotal.WithLabelValues(req.Model, string(bgResp.Status), bgResp.BillingSource).Inc()
+	_ = lastAdapterName // used by metrics instrumentation above
+
 	return buildResponseFromDB(bgResp)
 }
 
 // DispatchAsync handles async capability requests (video, audio, etc.).
 // Flow: idempotency check → create response (with pricing snapshot) → invoke → return queued.
 func DispatchAsync(req *relaycommon.CanonicalRequest) (*dto.BaseGateResponse, error) {
+	dispatchStart := time.Now()
+	logCtx := fmt.Sprintf("[bg] org=%d proj=%d resp=%s cap=%s mode=async", req.OrgID, req.ProjectID, req.ResponseID, req.Model)
+	defer func() {
+		elapsed := time.Since(dispatchStart).Seconds()
+		BgRequestDuration.WithLabelValues(req.Model, "async").Observe(elapsed)
+		BgRequestsTotal.WithLabelValues(req.Model, "queued", "hosted").Inc()
+		if elapsed > 10 {
+			common.SysError(fmt.Sprintf("%s SLOW REQUEST: %.1fs", logCtx, elapsed))
+		}
+	}()
+
 	// 1. Idempotency check
 	if existing, err := checkIdempotency(req.OrgID, req.IdempotencyKey, req.Input); err != nil {
 		return nil, err // ErrIdempotencyConflict

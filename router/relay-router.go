@@ -115,21 +115,23 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatOpenAIResponsesCompaction)
 		})
 
-		// BaseGate capability routes
-		httpRouter.GET("/bg/usage", controller.GetBgUsage)
-		httpRouter.POST("/bg/responses", controller.PostResponses)
-		httpRouter.GET("/bg/responses/:id", controller.GetResponseByID)
-		httpRouter.POST("/bg/responses/:id/cancel", controller.CancelResponseByID)
+		// BaseGate routes — per-key rate limiting (Phase 16)
+		bgRouter := httpRouter.Group("/bg")
+		bgRouter.Use(middleware.BgPerKeyRateLimit())
+		{
+			bgRouter.GET("/usage", controller.GetBgUsage)
+			bgRouter.POST("/responses", controller.PostResponses)
+			bgRouter.GET("/responses/:id", controller.GetResponseByID)
+			bgRouter.POST("/responses/:id/cancel", controller.CancelResponseByID)
 
-		// BaseGate Session routes
-		httpRouter.POST("/bg/sessions", controller.PostSessions)
-		httpRouter.GET("/bg/sessions/:id", controller.GetSessionByID)
-		httpRouter.POST("/bg/sessions/:id/action", controller.PostSessionAction)
-		httpRouter.POST("/bg/sessions/:id/close", controller.CloseSessionByID)
+			bgRouter.POST("/sessions", controller.PostSessions)
+			bgRouter.GET("/sessions/:id", controller.GetSessionByID)
+			bgRouter.POST("/sessions/:id/action", controller.PostSessionAction)
+			bgRouter.POST("/sessions/:id/close", controller.CloseSessionByID)
 
-		// BaseGate Tool routes (Phase 15)
-		httpRouter.GET("/bg/tools", controller.ListTools)
-		httpRouter.POST("/bg/tools/execute", controller.ExecuteTool)
+			bgRouter.GET("/tools", controller.ListTools)
+			bgRouter.POST("/tools/execute", controller.ExecuteTool)
+		}
 
 		// image related routes
 		httpRouter.POST("/edits", func(c *gin.Context) {

@@ -281,6 +281,10 @@ func SetApiRouter(router *gin.Engine) {
 			bgAdminRoute.POST("/policies/routing", controller.AdminCreateBgRoutingPolicy)
 			bgAdminRoute.PUT("/policies/routing/:id", controller.AdminUpdateBgRoutingPolicy)
 			bgAdminRoute.DELETE("/policies/routing/:id", controller.AdminDeleteBgRoutingPolicy)
+
+			// Admin ops (Phase 16)
+			bgAdminRoute.GET("/admin/circuit-breakers", controller.AdminListBgCircuitBreakers)
+			bgAdminRoute.POST("/admin/cache/clear", controller.AdminClearBgCache)
 		}
 
 		// Developer-scoped BaseGate API — UserAuth() (non-admin users can access)

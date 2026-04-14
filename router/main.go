@@ -8,12 +8,18 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/gin-gonic/gin"
 )
 
 func SetRouter(router *gin.Engine, buildFS embed.FS, indexPage []byte) {
+	// Observability endpoints (no auth, no rate limit)
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	router.GET("/health", controller.HealthCheck)
+
 	SetApiRouter(router)
 	SetDashboardRouter(router)
 	SetRelayRouter(router)
